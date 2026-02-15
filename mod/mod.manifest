@@ -1,0 +1,14 @@
+<kcd_mod>
+    <info>
+        <name>KCD2 Multiplayer Sandbox</name>
+        <modid>kcd2_multiplayer</modid>
+        <description>Experimental multiplayer sandbox mod</description>
+        <author>You</author>
+        <version>0.1</version>
+        <created_on>2026-02-15</created_on>
+    </info>
+
+    <supports>
+        <version>1.*</version>
+    </supports>
+</kcd_mod>
