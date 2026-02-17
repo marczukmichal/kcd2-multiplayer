@@ -1,27 +1,53 @@
 import * as http from "http";
 
-// Game debug API
-const DEBUG_API = "http://localhost:1403";
+// ===== CONFIG =====
+
 const TICK_MS = 200;
+
+interface GameClient {
+  name: string;
+  api: string;
+  ready: boolean;
+  modLoaded: boolean;
+  ghostSpawned: boolean;
+  lastPos: PlayerState | null;
+  probeCount: number;
+}
 
 interface PlayerState {
   x: number;
   y: number;
   z: number;
   rotZ: number;
-  timestamp: number;
 }
 
-let localPlayer: PlayerState | null = null;
-let apiAvailable = false;
-let modLoaded = false;
-let ghostSpawned = false;
+// Two game clients on LAN
+const clients: GameClient[] = [
+  {
+    name: "PC1",
+    api: "http://192.168.18.33:1404",
+    ready: false,
+    modLoaded: false,
+    ghostSpawned: false,
+    lastPos: null,
+    probeCount: 0,
+  },
+  {
+    name: "PC2",
+    api: "http://192.168.18.29:1404",
+    ready: false,
+    modLoaded: false,
+    ghostSpawned: false,
+    lastPos: null,
+    probeCount: 0,
+  },
+];
 
-// ===== Debug API Communication =====
+// ===== API Helpers =====
 
-function fetchAPI(path: string): Promise<string> {
+function fetchAPI(baseUrl: string, path: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const url = `${DEBUG_API}${path}`;
+    const url = `${baseUrl}${path}`;
     http
       .get(url, { timeout: 3000 }, (res) => {
         let data = "";
@@ -36,145 +62,143 @@ function fetchAPI(path: string): Promise<string> {
   });
 }
 
-// Execute a console command (CVar or Lua with # prefix)
-async function execConsole(cmd: string): Promise<string> {
+async function execLua(baseUrl: string, lua: string): Promise<string> {
+  const cmd = `#${lua}`;
   return fetchAPI(
-    `/api/System/Console/ExecuteString?command=${encodeURIComponent(cmd)}`
+    baseUrl,
+    `/api/System/Console/ExecuteString?command=${encodeURIComponent(cmd)}`,
   );
 }
 
-// Execute Lua code in game
-async function execLua(lua: string): Promise<string> {
-  return execConsole(`#${lua}`);
-}
-
-// Read a CVar value
-async function getCvar(name: string): Promise<string> {
+async function getCvar(baseUrl: string, name: string): Promise<string> {
   const xml = await fetchAPI(
-    `/api/System/Console/GetCvarValue?name=${encodeURIComponent(name)}`
+    baseUrl,
+    `/api/System/Console/GetCvarValue?name=${encodeURIComponent(name)}`,
   );
   const match = xml.match(/>([^<]*)</);
   return match ? match[1] : "";
 }
 
-// Read Lua expression result via CVar trick
-async function evalLua(expr: string): Promise<string> {
-  await execLua(`System.SetCVar("sv_servername",tostring(${expr}))`);
-  return getCvar("sv_servername");
+async function evalLua(baseUrl: string, expr: string): Promise<string> {
+  await execLua(baseUrl, `System.SetCVar("sv_servername",tostring(${expr}))`);
+  return getCvar(baseUrl, "sv_servername");
 }
 
-// ===== Player Position + Rotation =====
+// ===== Read Player Position =====
 
-async function readPlayerFromAPI(): Promise<PlayerState | null> {
+async function readPlayer(client: GameClient): Promise<PlayerState | null> {
   try {
-    // Read position from REST API
-    const xml = await fetchAPI("/api/rpg/SoulList/PlayerSoul?depth=1");
+    const xml = await fetchAPI(
+      client.api,
+      "/api/rpg/SoulList/PlayerSoul?depth=1",
+    );
     const posMatch = xml.match(/Position="([^"]+)"/);
     if (!posMatch) return null;
 
     const parts = posMatch[1].split(",");
     if (parts.length < 3) return null;
 
-    // Read rotation via Lua (player:GetWorldAngles().z)
+    // Read rotation
     let rotZ = 0;
     try {
-      const rotStr = await evalLua("player:GetWorldAngles().z");
+      const rotStr = await evalLua(client.api, "player:GetWorldAngles().z");
       const parsed = parseFloat(rotStr);
       if (!isNaN(parsed)) rotZ = parsed;
-    } catch {
-      // rotation read failed, use 0
-    }
+    } catch {}
 
     return {
       x: parseFloat(parts[0]),
       y: parseFloat(parts[1]),
       z: parseFloat(parts[2]),
       rotZ,
-      timestamp: Date.now(),
     };
   } catch {
     return null;
   }
 }
 
-// ===== Ghost NPC Management =====
+// ===== Update Ghost on Target Client =====
 
-async function updateGhost(playerPos: PlayerState) {
-  // Place ghost 3 meters offset from player (for testing)
-  const gx = (playerPos.x + 3).toFixed(2);
-  const gy = playerPos.y.toFixed(2);
-  const gz = playerPos.z.toFixed(2);
-  const rot = playerPos.rotZ.toFixed(4);
+async function updateGhost(
+  target: GameClient,
+  sourceClient: GameClient,
+  pos: PlayerState,
+) {
+  const gx = pos.x.toFixed(2);
+  const gy = pos.y.toFixed(2);
+  const gz = pos.z.toFixed(2);
+  const rot = pos.rotZ.toFixed(4);
+  const ghostId = sourceClient.name.toLowerCase();
 
-  if (modLoaded) {
-    try {
-      await execLua(
-        `KCD2MP_UpdateGhost("test_ghost",${gx},${gy},${gz},${rot})`
-      );
-      if (!ghostSpawned) {
-        console.log(`[server] Ghost spawned via mod: ${gx}, ${gy}, ${gz}`);
-        ghostSpawned = true;
-      }
-    } catch {
-      // silent
-    }
+  if (target.modLoaded) {
+    await execLua(
+      target.api,
+      `KCD2MP_UpdateGhost("${ghostId}",${gx},${gy},${gz},${rot})`,
+    );
   } else {
-    try {
-      const lua = ghostSpawned
-        ? `local e=System.GetEntityByName("mp_ghost"); if e then e:SetWorldPos({x=${gx},y=${gy},z=${gz}}); e:SetWorldAngles({x=0,y=0,z=${rot}}) end`
-        : `local e=System.SpawnEntity({class="NPC",name="mp_ghost",position={x=${gx},y=${gy},z=${gz}}}); if e then KCD2MP_GhostId=e.id end`;
-      await execLua(lua);
-      if (!ghostSpawned) {
-        console.log(`[server] Ghost spawned (no mod): ${gx}, ${gy}, ${gz}`);
-        ghostSpawned = true;
-      }
-    } catch {
-      // silent
+    // Fallback: direct spawn/move without mod
+    const name = `mp_ghost_${ghostId}`;
+    if (!target.ghostSpawned) {
+      await execLua(
+        target.api,
+        `System.SpawnEntity({class="NPC",name="${name}",position={x=${gx},y=${gy},z=${gz}}})`,
+      );
+    } else {
+      await execLua(
+        target.api,
+        `local e=System.GetEntityByName("${name}"); if e then e:SetWorldPos({x=${gx},y=${gy},z=${gz}}); e:SetWorldAngles({x=0,y=0,z=${rot}}) end`,
+      );
     }
+  }
+
+  if (!target.ghostSpawned) {
+    console.log(
+      `[${target.name}] Ghost "${ghostId}" spawned at ${gx},${gy},${gz}`,
+    );
+    target.ghostSpawned = true;
   }
 }
 
-// ===== Probe & Health Check =====
+// ===== Probe Client =====
 
-async function probeAPI(): Promise<boolean> {
+async function probeClient(client: GameClient): Promise<boolean> {
   try {
-    // Check if game is running (not main menu)
-    const calendarXml = await fetchAPI("/api/rpg/Calendar?depth=1");
+    const calendarXml = await fetchAPI(client.api, "/api/rpg/Calendar?depth=1");
     const timeMatch = calendarXml.match(/GameTime="([^"]+)"/);
     const gameTime = timeMatch ? parseFloat(timeMatch[1]) : 0;
 
     if (gameTime === 0) {
-      console.log(
-        "[server] Game on main menu (GameTime=0). Waiting for save..."
-      );
+      console.log(`[${client.name}] Main menu (GameTime=0)`);
       return false;
     }
 
-    // Read player info
-    const playerXml = await fetchAPI("/api/rpg/SoulList/PlayerSoul?depth=1");
+    const playerXml = await fetchAPI(
+      client.api,
+      "/api/rpg/SoulList/PlayerSoul?depth=1",
+    );
     const nameMatch = playerXml.match(/Name="([^"]+)"/);
     const posMatch = playerXml.match(/Position="([^"]+)"/);
     console.log(
-      `[server] Game running! Player: ${nameMatch?.[1] ?? "?"} at ${posMatch?.[1] ?? "?"}`
+      `[${client.name}] Game running! Player: ${nameMatch?.[1] ?? "?"} at ${posMatch?.[1] ?? "?"}`,
     );
 
-    // Check if mod is loaded
-    const modType = await evalLua("type(KCD2MP)");
-    modLoaded = modType === "table";
+    // Check mod
+    const modType = await evalLua(client.api, "type(KCD2MP)");
+    client.modLoaded = modType === "table";
     console.log(
-      `[server] Mod loaded: ${modLoaded ? "YES" : "NO (using fallback)"}`
+      `[${client.name}] Mod: ${client.modLoaded ? "YES" : "NO (fallback)"}`,
     );
 
     return true;
   } catch (e: any) {
-    console.log(`[server] API probe failed: ${e.message}`);
+    console.log(`[${client.name}] Probe failed: ${e.message}`);
     return false;
   }
 }
 
-// ===== Main Loop =====
+// ===== Position Changed =====
 
-function stateChanged(a: PlayerState | null, b: PlayerState): boolean {
+function posChanged(a: PlayerState | null, b: PlayerState): boolean {
   if (!a) return true;
   return (
     Math.abs(a.x - b.x) > 0.05 ||
@@ -184,46 +208,67 @@ function stateChanged(a: PlayerState | null, b: PlayerState): boolean {
   );
 }
 
-let probeInterval = 0;
+// ===== Main Tick =====
+
 async function tick() {
-  if (!apiAvailable) {
-    probeInterval++;
-    // Probe every 3 seconds (not every tick)
-    if (probeInterval % 15 === 1) {
-      apiAvailable = await probeAPI();
-      if (apiAvailable) {
-        console.log("");
-        console.log("[server] === READY ===");
-        console.log("");
+  // Probe clients that aren't ready
+  for (const client of clients) {
+    if (!client.ready) {
+      client.probeCount++;
+      if (client.probeCount % 15 === 1) {
+        client.ready = await probeClient(client);
+        if (client.ready) {
+          console.log(`[${client.name}] === READY ===`);
+        }
       }
+      continue;
     }
-    return;
   }
 
-  try {
-    const pos = await readPlayerFromAPI();
-    if (pos && stateChanged(localPlayer, pos)) {
-      localPlayer = pos;
-      console.log(
-        `[player] x=${pos.x.toFixed(1)} y=${pos.y.toFixed(1)} z=${pos.z.toFixed(1)} rot=${pos.rotZ.toFixed(2)}`
-      );
+  // For each pair: read pos from one, send ghost to other
+  for (let i = 0; i < clients.length; i++) {
+    const source = clients[i];
+    const target = clients[1 - i]; // the other client
 
-      await updateGhost(pos);
+    if (!source.ready) continue;
+
+    try {
+      const pos = await readPlayer(source);
+      if (!pos) continue;
+
+      if (posChanged(source.lastPos, pos)) {
+        source.lastPos = pos;
+        console.log(
+          `[${source.name}] x=${pos.x.toFixed(1)} y=${pos.y.toFixed(1)} z=${pos.z.toFixed(1)} rot=${pos.rotZ.toFixed(2)}`,
+        );
+
+        // Send to other client (if ready)
+        if (target.ready) {
+          try {
+            await updateGhost(target, source, pos);
+          } catch (e: any) {
+            console.log(`[${target.name}] Ghost update failed: ${e.message}`);
+          }
+        }
+      }
+    } catch {
+      console.log(`[${source.name}] Connection lost, re-probing...`);
+      source.ready = false;
+      source.probeCount = 0;
     }
-  } catch {
-    // API might have disconnected (game reload, etc.)
-    console.log("[server] API connection lost, re-probing...");
-    apiAvailable = false;
-    ghostSpawned = false;
-    probeInterval = 0;
   }
 }
 
 // ===== Start =====
 
-console.log("[server] KCD2 Multiplayer Server starting...");
-console.log("[server] Debug API:", DEBUG_API);
-console.log("[server] Tick interval:", TICK_MS, "ms");
+console.log("=== KCD2 Multiplayer Server ===");
+console.log("");
+for (const c of clients) {
+  console.log(`  ${c.name}: ${c.api}`);
+}
+console.log("");
+console.log(`Tick: ${TICK_MS}ms`);
+console.log("Waiting for both games...");
 console.log("");
 
 setInterval(tick, TICK_MS);
