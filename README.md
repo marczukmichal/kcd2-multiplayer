@@ -143,8 +143,13 @@ On the PC that will run the server:
    ```bash
    cd server
    npm install
-   npx tsx index.ts
+   tsx --watch index.ts
+   or
+   tsx --watch index-multi.ts
    ```
+
+   index.ts - fake player 2 - usecase: work on animations etc
+   index-multi.ts real multiplayer with 2nd pc
 
 4. The server will show:
 
