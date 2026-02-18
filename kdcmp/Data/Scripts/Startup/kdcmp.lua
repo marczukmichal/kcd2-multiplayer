@@ -71,6 +71,9 @@ function KCD2MP_SpawnGhost(id, x, y, z, rotZ)
         class = KCD2MP.workingClass,
         position = pos,
         name = name,
+        Properties = {
+            sFactionName = "Neutral",
+        },
     })
 
     if not ok or not entity then
@@ -267,33 +270,32 @@ function KCD2MP_InterpTick()
                 -- === Animation ===
                 -- Speed from velocity (horizontal only, ignore vertical)
                 local speed = math.sqrt(istate.vx * istate.vx + istate.vy * istate.vy)
-                local isMoving = speed > 0.3
-                -- Real Mannequin animation names from kcd_male_database.adb:
-                --   [run]  -> 3d_relaxed_run_turn_strafe
-                --   [walk] -> 3d_relaxed_walk_turn_strafe
-                --   []     -> relaxed_idle_both  (Mannequin idle)
-                local wantAnim = isMoving and "3d_relaxed_run_turn_strafe" or "relaxed_idle_both"
+                -- Animation state machine based on speed
+                -- Thresholds from ADB analysis (KCD2 walk ~1.5 m/s, run ~4 m/s)
+                local wantAnim, wantTag
+                if speed > 2.5 then
+                    wantAnim = "3d_relaxed_run_turn_strafe"
+                    wantTag  = "run"
+                elseif speed > 0.3 then
+                    wantAnim = "3d_relaxed_walk_turn_strafe"
+                    wantTag  = "walk"
+                else
+                    wantAnim = "relaxed_idle_both"
+                    wantTag  = ""
+                end
 
                 istate.animTimer = (istate.animTimer or 0) + 1
                 if wantAnim ~= istate.animState or istate.animTimer >= 20 then
                     istate.animState = wantAnim
                     istate.animTimer = 0
-                    pcall(function()
-                        ghost.entity:StartAnimation(0, wantAnim)
-                    end)
-                    -- Also drive via AI tag system
-                    if isMoving then
-                        pcall(function() AI.SetAnimationTag(ghost.entityId, "run") end)
-                        pcall(function() AI.SetForcedNavigation(ghost.entityId,
-                            {x=istate.vx/speed, y=istate.vy/speed, z=0}) end)
-                        pcall(function() AI.SetSpeed(ghost.entityId, speed) end)
-                    else
-                        pcall(function() AI.SetAnimationTag(ghost.entityId, "") end)
-                        pcall(function() AI.SetForcedNavigation(ghost.entityId, {x=0,y=0,z=0}) end)
-                        pcall(function() AI.SetSpeed(ghost.entityId, 0) end)
-                    end
+                    -- StartAnimation: works for walk/idle (started=true)
+                    -- For run blendspace (started=false) AI.SetAnimationTag takes over
+                    pcall(function() ghost.entity:StartAnimation(0, wantAnim) end)
+                    -- AI tag drives Mannequin fragment selection
+                    pcall(function() AI.SetAnimationTag(ghost.entityId, wantTag) end)
+                    pcall(function() AI.SetSpeed(ghost.entityId, speed) end)
                 end
-                istate.isMoving = isMoving
+                istate.isMoving = (speed > 0.3)
             end
         end
     end
