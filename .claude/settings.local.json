@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(unzip:*)",
-      "Bash(python3:*)"
-    ]
-  }
-}
