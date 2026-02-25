@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<database xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="barbora" xsi:noNamespaceSchemaLocation="InventoryPreset.xsd">
+	<InventoryPresets version="2" >
+		<InventoryPreset Name="test_inventory_prokopTestujeInventar">
+				<InventoryPresetRef Name="inventory_lovSPtackem_huntingCampStash" />
+		</InventoryPreset>
+	</InventoryPresets>
+</database>

@@ -1239,3 +1239,28 @@ end)
 if not ok2 then
     System.LogAlways("[KCD2-MP] Hook error: " .. tostring(err2))
 end
+
+
+
+System.AddCCommand("mp_spawn_armor", [[
+    if not player then System.LogAlways("[MP] no player"); return end
+    local pos = player:GetWorldPos()
+    local npc = System.SpawnEntity({class="NPC", name="TestNPC", position=pos, scale={x=1,y=1,z=1}})
+    if not npc then System.LogAlways("[MP] SpawnEntity failed"); return end
+    pcall(function() npc.Properties.factionName = "outlaw" end)
+    -- Step 1: add items to inventory via ItemManager (same pattern as player.lua)
+    local GAMBESON = "00b7ed62-a7bd-4269-acfa-8d852366579b"
+    local CUIRASS  = "10ff6d35-8c14-4871-8656-bdc3476d8b12"
+    local ok1, e1 = pcall(function()
+        local g = ItemManager.CreateItem(GAMBESON, 1, 1)
+        npc.inventory:AddItem(g)
+        local c = ItemManager.CreateItem(CUIRASS, 1, 1)
+        npc.inventory:AddItem(c)
+    end)
+    System.LogAlways("[MP] AddItems: ok=" .. tostring(ok1) .. " " .. tostring(e1))
+    -- Step 2: visually equip via ClothingPreset GUID (defined in clothing_preset__kdcmp.xml)
+    local ok2, e2 = pcall(function()
+        npc.actor:EquipClothingPreset("dc000001-0000-0000-0000-000000000000")
+    end)
+    System.LogAlways("[MP] EquipClothingPreset: ok=" .. tostring(ok2) .. " " .. tostring(e2))
+]], "Spawn NPC with cuirass")

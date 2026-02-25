@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="us-ascii"?>
+<database xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="barbora" xsi:noNamespaceSchemaLocation="../database.xsd">
+	<clothing_presets version="2">
+		<!-- GambesonShort01_m04_D2 + Cuirass07_m01_A4 -->
+		<clothing_preset clothing_preset_id="dc000001-0000-0000-0000-000000000000" clothing_preset_name="kcd2mp_ghost_armor" gender="Male" prefers_hood_on="false">
+			<Items>
+				<Guid>00b7ed62-a7bd-4269-acfa-8d852366579b</Guid>
+				<Guid>10ff6d35-8c14-4871-8656-bdc3476d8b12</Guid>
+			</Items>
+		</clothing_preset>
+	</clothing_presets>
+</database>
