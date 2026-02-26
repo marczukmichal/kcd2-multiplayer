@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(powershell.exe:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(cmd.exe:)",
+      "Bash(cmd.exe:*)"
     ]
   }
 }

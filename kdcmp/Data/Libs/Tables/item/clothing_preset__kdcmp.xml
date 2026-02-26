@@ -8,5 +8,38 @@
 				<Guid>10ff6d35-8c14-4871-8656-bdc3476d8b12</Guid>
 			</Items>
 		</clothing_preset>
+		<!-- KNIGHT full set (9 layers):
+		     LegsPadded01 + GambesonShort01 + CoifMail02 + MailShort01
+		     + Brigandine05_m04(silesian body) + BrigandineArm05_m11(silesian arms)
+		     + Gauntlets08 + LegsPlate03 + BascinetVisor04  no boots -->
+		<clothing_preset clothing_preset_id="dc000002-0000-0000-0000-000000000000" clothing_preset_name="kcd2mp_knight_armor" gender="Male" prefers_hood_on="false">
+			<Items>
+				<Guid>078e439b-1a5b-40ca-b009-d4abf6fcf810</Guid>
+				<Guid>00b7ed62-a7bd-4269-acfa-8d852366579b</Guid>
+				<Guid>0b383bf7-a67b-4caa-9db8-501ed8d6aa9f</Guid>
+				<Guid>0364c89d-ac13-44ef-94d5-22b4047e7a26</Guid>
+				<Guid>a8723887-ac6e-45a0-a6a4-0cf905716b6d</Guid>
+				<Guid>dcc178b9-ed1c-41c4-b2e7-ebda930e8af9</Guid>
+				<Guid>2dd6ea92-4024-4113-97ed-6a23f19b39d9</Guid>
+				<Guid>1972ac07-f8e1-41f0-9fb4-cf115b0088ec</Guid>
+				<Guid>96841ac9-4cdc-41e7-a84e-d212389a0d71</Guid>
+			</Items>
+		</clothing_preset>
+		<!-- White/Red knight: LegsBrigandine04 + LegsPadded01 + knackersGloves + GambesonLong01
+		     + Brigandine10 + ArmPlate04 + CoifMail01 + BascinetVisor05 + BootsKnee03 + longSwordDuel -->
+		<clothing_preset clothing_preset_id="dc000003-0000-0000-0000-000000000000" clothing_preset_name="kcd2mp_whitered_armor" gender="Male" prefers_hood_on="false">
+			<Items>
+				<Guid>a8b22da0-e42e-4d79-abe7-52e6eebad6eb</Guid>
+				<Guid>cc1adb78-fa5a-45c9-be7b-b7b50e182cb3</Guid>
+				<Guid>36a701ed-2144-452a-b113-385efba2c0d1</Guid>
+				<Guid>46b051c4-d4e2-4f3a-8b88-e3f64dae4618</Guid>
+				<Guid>1aadf1e5-c37b-41c3-bc65-354187022c91</Guid>
+				<Guid>a5322fcd-27b4-4f4e-bfbf-49c519c74c74</Guid>
+				<Guid>cfc1fd72-dbb7-49a4-8713-6acf215a72be</Guid>
+				<Guid>b6fe59ec-c854-402a-848e-a77f55661c19</Guid>
+				<Guid>a06cfbf0-3d59-4003-89d4-69a82eb735af</Guid>
+				<Guid>00cca9e3-8ef2-46db-8cbf-86ec51930919</Guid>
+			</Items>
+		</clothing_preset>
 	</clothing_presets>
 </database>

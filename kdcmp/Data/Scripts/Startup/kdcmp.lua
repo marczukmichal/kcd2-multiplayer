@@ -1120,6 +1120,156 @@ function KCD2MP_ProbeStance()
     System.LogAlways("[KCD2-MP] === END ===")
 end
 
+-- ===== Spawn NPC with custom armor =====
+
+-- Preset table (name -> {items, preset})
+KCD2MP.armorPresets = {
+    ghost = {
+        items  = "00b7ed62-a7bd-4269-acfa-8d852366579b,10ff6d35-8c14-4871-8656-bdc3476d8b12",
+        preset = "dc000001-0000-0000-0000-000000000000",
+    },
+    -- White/Red: LegsBrigandine04 + LegsPadded01 + knackersGloves + GambesonLong01
+    -- + Brigandine10 + ArmPlate04 + CoifMail01 + BascinetVisor05 + BootsKnee03
+    -- weapon: kkut_menhart preset (sermiry_longSwordMenhart)
+    white_red = {
+        items  = "a8b22da0-e42e-4d79-abe7-52e6eebad6eb"  -- LegsBrigandine04_m04_A5 (spodnie)
+              .. ",cc1adb78-fa5a-45c9-be7b-b7b50e182cb3"  -- LegsPadded01_m02_C3 (nogawice)
+              .. ",36a701ed-2144-452a-b113-385efba2c0d1"  -- rasuvUcen_knackersGloves
+              .. ",46b051c4-d4e2-4f3a-8b88-e3f64dae4618"  -- GambesonLong01_m03_C3 (przeszywanica)
+              .. ",1aadf1e5-c37b-41c3-bc65-354187022c91"  -- Brigandine10_m09_A5 (plate armor)
+              .. ",a5322fcd-27b4-4f4e-bfbf-49c519c74c74"  -- ArmPlate04_m08_A5 (naramienniki)
+              .. ",cfc1fd72-dbb7-49a4-8713-6acf215a72be"  -- CoifMail01_m02_C2 (coif mail)
+              .. ",b6fe59ec-c854-402a-848e-a77f55661c19"  -- BascinetVisor05_m04_C4 (bascinet)
+              .. ",a06cfbf0-3d59-4003-89d4-69a82eb735af", -- BootsKnee03_m01_C (buty)
+        preset  = "dc000003-0000-0000-0000-000000000000",
+        weapons = "af2dd849-92a4-4081-9955-0afcb861fcd5", -- kkut_menhart (sermiry_longSwordMenhart)
+    },
+    -- LegsPadded01(pikowane) + GambesonShort01 + CoifMail02 + MailShort01
+    -- + Cuirass07 + ArmPlate04 + Gauntlets08 + LegsPlate03 + BascinetVisor04
+    -- + longSwordDuel (inventory only) - no boots
+    knight = {
+        items  = "078e439b-1a5b-40ca-b009-d4abf6fcf810"  -- LegsPadded01_m07_C3 (pikowane)
+              .. ",00b7ed62-a7bd-4269-acfa-8d852366579b"  -- GambesonShort01_m04_D2
+              .. ",0b383bf7-a67b-4caa-9db8-501ed8d6aa9f"  -- CoifMail02_mPrague_B3
+              .. ",0364c89d-ac13-44ef-94d5-22b4047e7a26"  -- MailShort01_m03_C4
+              .. ",a8723887-ac6e-45a0-a6a4-0cf905716b6d"  -- Brigandine05_m04_C3 (silesian body)
+              .. ",dcc178b9-ed1c-41c4-b2e7-ebda930e8af9"  -- BrigandineArm05_m11_B4 (silesian)
+              .. ",2dd6ea92-4024-4113-97ed-6a23f19b39d9"  -- Gauntlets08_m01_B4
+              .. ",1972ac07-f8e1-41f0-9fb4-cf115b0088ec"  -- LegsPlate03_m03_A5
+              .. ",96841ac9-4cdc-41e7-a84e-d212389a0d71"  -- BascinetVisorScaring_m01_closed
+              .. ",00cca9e3-8ef2-46db-8cbf-86ec51930919", -- longSwordDuel (inventory)
+        preset = "dc000002-0000-0000-0000-000000000000",
+    },
+}
+
+-- Split "a,b,c" -> {"a","b","c"}, trims whitespace
+local function splitCSV(s)
+    local parts = {}
+    for part in string.gmatch(s, "[^,]+") do
+        local trimmed = part:match("^%s*(.-)%s*$")
+        if trimmed and #trimmed > 0 then
+            parts[#parts + 1] = trimmed
+        end
+    end
+    return parts
+end
+
+-- Spawn NPC in front of player, add items to inventory, optionally equip via ClothingPreset.
+-- items_csv    : comma-separated item GUIDs (inventory)
+-- preset_guid  : ClothingPreset GUID for visual equip (must exist in clothing_preset__kdcmp.xml)
+-- weapon_preset: WeaponPreset GUID (from weapon_preset.xml) - equips weapon in hand slot
+function KCD2MP_SpawnArmoredNPC(items_csv, preset_guid, weapon_preset)
+    if not player then
+        System.LogAlways("[KCD2-MP] SpawnArmoredNPC: no player")
+        return
+    end
+    local pos = player:GetWorldPos()
+    if not pos then return end
+
+    -- Spawn 3m in front of player
+    local ox, oy = 3, 0
+    local ang = nil
+    pcall(function() ang = player:GetWorldAngles() end)
+    if ang then
+        ox = math.sin(ang.z) * 3
+        oy = math.cos(ang.z) * 3
+    end
+    local spawnPos = {x = pos.x + ox, y = pos.y + oy, z = pos.z}
+
+    KCD2MP.spawnCount = (KCD2MP.spawnCount or 0) + 1
+    local npcName = "kcd2mp_npc_" .. KCD2MP.spawnCount
+
+    System.LogAlways(string.format("[KCD2-MP] SpawnArmoredNPC '%s' at %.1f,%.1f,%.1f",
+        npcName, spawnPos.x, spawnPos.y, spawnPos.z))
+
+    local npc = nil
+    local ok1, e1 = pcall(function()
+        npc = System.SpawnEntity({class="NPC", name=npcName, position=spawnPos})
+    end)
+    if not ok1 or not npc then
+        System.LogAlways("[KCD2-MP] SpawnArmoredNPC: SpawnEntity failed: " .. tostring(e1))
+        return
+    end
+    System.LogAlways("[KCD2-MP] SpawnArmoredNPC: entityId=" .. tostring(npc.id))
+
+    -- Visually equip via ClothingPreset FIRST (may reset inventory state)
+    if preset_guid and preset_guid ~= "" then
+        local ok2, e2 = pcall(function()
+            npc.actor:EquipClothingPreset(preset_guid)
+        end)
+        System.LogAlways("[KCD2-MP] EquipClothingPreset " .. preset_guid
+            .. ": ok=" .. tostring(ok2)
+            .. (ok2 and "" or (" err=" .. tostring(e2))))
+    end
+
+    -- Add items to inventory AFTER preset (so preset cannot wipe them)
+    local guids = (items_csv and items_csv ~= "") and splitCSV(items_csv) or {}
+    System.LogAlways("[KCD2-MP] Adding " .. #guids .. " items to inventory")
+    for i, guid in ipairs(guids) do
+        local ok, e = pcall(function()
+            local item = ItemManager.CreateItem(guid, 1, 1)
+            npc.inventory:AddItem(item)
+        end)
+        System.LogAlways(string.format("[KCD2-MP]   item[%d] %s: ok=%s%s",
+            i, guid, tostring(ok), ok and "" or (" err=" .. tostring(e))))
+    end
+
+    -- Equip weapon via WeaponPreset (visual + inventory, works for swords/shields)
+    if weapon_preset and weapon_preset ~= "" then
+        local ok3, e3 = pcall(function()
+            npc.actor:EquipWeaponPreset(weapon_preset)
+        end)
+        System.LogAlways("[KCD2-MP] EquipWeaponPreset " .. weapon_preset
+            .. ": ok=" .. tostring(ok3)
+            .. (ok3 and "" or (" err=" .. tostring(e3))))
+
+        -- Close visor after short delay using native console command
+        -- pattern from VIA mod: closeVisorOn <entityName>
+        local npcNameRef = npcName
+        Script.SetTimer(800, function()
+            pcall(function()
+                System.ExecuteCommand("closeVisorOn " .. npcNameRef)
+                System.LogAlways("[KCD2-MP] closeVisorOn " .. npcNameRef)
+            end)
+        end)
+    end
+
+    mp_log(string.format("SpawnArmoredNPC '%s' items=%d preset=%s weapons=%s",
+        npcName, #guids, tostring(preset_guid or "none"), tostring(weapon_preset or "none")))
+end
+
+-- Spawn white/red armored NPC (uses XML preset dc000003 + weapon preset kkut_menhart)
+function KCD2MP_SpawnWhiteRed()
+    local p = KCD2MP.armorPresets.white_red
+    KCD2MP_SpawnArmoredNPC(p.items, p.preset, p.weapons)
+end
+
+-- Spawn fully armored knight (all 6 pieces, uses XML preset dc000002)
+function KCD2MP_SpawnKnight()
+    local p = KCD2MP.armorPresets.knight
+    KCD2MP_SpawnArmoredNPC(p.items, p.preset)
+end
+
 -- ===== Register Console Commands =====
 
 local ok, err = pcall(function()
@@ -1141,6 +1291,10 @@ local ok, err = pcall(function()
     System.AddCCommand("mp_probe_stance", "KCD2MP_ProbeStance()",   "Log player stance value (for crouch detection calibration)")
     System.AddCCommand("mp_sneak_on",     "KCD2MP.playerSneaking=true;System.LogAlways('[KCD2-MP] SNEAK ON (manual)')",  "Force ghost into sneak mode")
     System.AddCCommand("mp_sneak_off",    "KCD2MP.playerSneaking=false;System.LogAlways('[KCD2-MP] SNEAK OFF (manual)')", "Force ghost out of sneak mode")
+    -- mp_spawn_armor <guid1,guid2,...>  -- inventory only (no visual unless preset given as 2nd arg)
+    System.AddCCommand("mp_spawn_armor",  'KCD2MP_SpawnArmoredNPC("%LINE")',  "Spawn NPC with items: mp_spawn_armor guid1,guid2,...")
+    System.AddCCommand("mp_spawn_knight",    "KCD2MP_SpawnKnight()",    "Spawn fully armored knight (BascinetVisor04+Cuirass07+Gauntlets08+LegsPlate03+MailLong01)")
+    System.AddCCommand("mp_spawn_white_red", "KCD2MP_SpawnWhiteRed()", "Spawn white/red armored NPC (Brigandine10+BascinetVisor05+sword)")
     System.LogAlways("[KCD2-MP] Commands OK")
 end)
 if not ok then
@@ -1242,25 +1396,3 @@ end
 
 
 
-System.AddCCommand("mp_spawn_armor", [[
-    if not player then System.LogAlways("[MP] no player"); return end
-    local pos = player:GetWorldPos()
-    local npc = System.SpawnEntity({class="NPC", name="TestNPC", position=pos, scale={x=1,y=1,z=1}})
-    if not npc then System.LogAlways("[MP] SpawnEntity failed"); return end
-    pcall(function() npc.Properties.factionName = "outlaw" end)
-    -- Step 1: add items to inventory via ItemManager (same pattern as player.lua)
-    local GAMBESON = "00b7ed62-a7bd-4269-acfa-8d852366579b"
-    local CUIRASS  = "10ff6d35-8c14-4871-8656-bdc3476d8b12"
-    local ok1, e1 = pcall(function()
-        local g = ItemManager.CreateItem(GAMBESON, 1, 1)
-        npc.inventory:AddItem(g)
-        local c = ItemManager.CreateItem(CUIRASS, 1, 1)
-        npc.inventory:AddItem(c)
-    end)
-    System.LogAlways("[MP] AddItems: ok=" .. tostring(ok1) .. " " .. tostring(e1))
-    -- Step 2: visually equip via ClothingPreset GUID (defined in clothing_preset__kdcmp.xml)
-    local ok2, e2 = pcall(function()
-        npc.actor:EquipClothingPreset("dc000001-0000-0000-0000-000000000000")
-    end)
-    System.LogAlways("[MP] EquipClothingPreset: ok=" .. tostring(ok2) .. " " .. tostring(e2))
-]], "Spawn NPC with cuirass")
