@@ -94,7 +94,7 @@ function KCD2MP_SpawnGhost(id, x, y, z, rotZ)
     System.LogAlways(string.format("[KCD2-MP] Spawning ghost '%s' at %.1f,%.1f,%.1f", id, x, y, z))
 
     local ok, entity = pcall(System.SpawnEntity, {
-        class = KCD2MP.workingClass,
+        class = "NPC",
         position = pos,
         name = name,
     })
@@ -106,12 +106,18 @@ function KCD2MP_SpawnGhost(id, x, y, z, rotZ)
 
     System.LogAlways("[KCD2-MP] Spawned entityId=" .. tostring(entity.id))
 
-    -- Load armor character model (AnimObject has no Mannequin ADB = no crash)
-    local cdfPath = "Objects/characters/humans/male/skeleton/preview/male_preview_armor.cdf"
-    pcall(function()
-        local charOk = entity:LoadCharacter(0, cdfPath)
-        System.LogAlways("[KCD2-MP] LoadCharacter: " .. tostring(charOk))
+    -- Apply white/red armor preset (ClothingPreset first, then WeaponPreset + visor)
+    local p = KCD2MP.armorPresets.white_red
+    pcall(function() entity.actor:EquipClothingPreset(p.preset) end)
+    pcall(function() entity.actor:EquipWeaponPreset(p.weapons) end)
+    local ghostName = name
+    Script.SetTimer(800, function()
+        pcall(function() System.ExecuteCommand("closeVisorOn " .. ghostName) end)
     end)
+
+    -- Try to disable NPC AI so position is fully controlled by SetWorldPos each tick
+    pcall(function() AI.EnableUpdateAgent(entity, false) end)
+    pcall(function() entity.AI:SetBehaviorVariable("bAiDisabled", 1) end)
 
     local r = rotZ or 0
 

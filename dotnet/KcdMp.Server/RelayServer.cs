@@ -3,10 +3,11 @@ using System.Net.Sockets;
 
 namespace KcdMp.Server;
 
-public class RelayServer(int port)
+public class RelayServer(int port, bool echo = false)
 {
     private readonly List<ClientSession> _clients = [];
     private readonly object _lock = new();
+    public bool Echo { get; } = echo;
 
     public async Task RunAsync()
     {
@@ -33,7 +34,8 @@ public class RelayServer(int port)
         }
     }
 
-    /// <summary>Broadcasts a position update from <paramref name="source"/> to all other ready clients.</summary>
+    /// <summary>Broadcasts a position update from <paramref name="source"/> to all other ready clients.
+    /// In echo mode also reflects the position back to the sender as ghost id=0.</summary>
     public void Broadcast(ClientSession source, float x, float y, float z, float rotZ)
     {
         List<ClientSession> targets;
@@ -42,5 +44,13 @@ public class RelayServer(int port)
 
         foreach (var target in targets)
             target.EnqueueGhost(source.Id, x, y, z, rotZ);
+
+        if (Echo)
+        {
+            // Place echo ghost 1 m to the right of the player's facing direction
+            float sideX = (float)Math.Cos(rotZ);
+            float sideY = -(float)Math.Sin(rotZ);
+            source.EnqueueGhost(0, x + sideX, y + sideY, z, rotZ);
+        }
     }
 }
