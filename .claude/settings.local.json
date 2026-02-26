@@ -5,7 +5,8 @@
       "Bash(python3:*)",
       "Bash(cmd.exe:)",
       "Bash(cmd.exe:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(find:*)"
     ]
   }
 }

@@ -97,6 +97,7 @@ function KCD2MP_SpawnGhost(id, x, y, z, rotZ)
         class = "NPC",
         position = pos,
         name = name,
+        properties = { esFaction = "Civilians" },  -- prevent combat with player
     })
 
     if not ok or not entity then
@@ -114,18 +115,6 @@ function KCD2MP_SpawnGhost(id, x, y, z, rotZ)
     Script.SetTimer(800, function()
         pcall(function() System.ExecuteCommand("closeVisorOn " .. ghostName) end)
     end)
-
-    -- Disable NPC AI: try immediately and again after 500ms (NPC may re-enable on init)
-    local function disableAI(eid)
-        pcall(function() AI.EnableUpdateAgent(eid, false) end)
-        pcall(function() AI.Signal(0, 1, "OnBackToIdle", eid) end)
-        pcall(function() AI.Signal(0, 1, "OnNoTarget", eid) end)
-        pcall(function() AI.Signal(0, 1, "OnFriendlyInWay", eid) end)
-    end
-    disableAI(entity.id)
-    local disableEid = entity.id
-    Script.SetTimer(500, function() disableAI(disableEid) end)
-    Script.SetTimer(2000, function() disableAI(disableEid) end)
 
     local r = rotZ or 0
 
@@ -172,9 +161,6 @@ end
 
 -- ===== Ghost Update (called by server each packet) =====
 
--- SERVER_INTERVAL: expected time between server packets in seconds.
-local SERVER_INTERVAL = 0.05  -- 50ms (exchange-based server tick)
-
 function KCD2MP_UpdateGhost(id, x, y, z, rotZ, stance)
     local ghost = KCD2MP.ghosts[id]
 
@@ -193,24 +179,36 @@ function KCD2MP_UpdateGhost(id, x, y, z, rotZ, stance)
     local r = rotZ or istate.tr
 
     -- Velocity from actual packet positions (for dead reckoning).
-    -- Use lastPacketX/Y (real previous packet pos), NOT tx/ty which dead reckoning extends.
+    -- Use real elapsed time between packets instead of fixed SERVER_INTERVAL
+    -- (echo mode sends every ~10ms, not 50ms, so fixed interval gave 5x underestimate).
     local ddx = x - (istate.lastPacketX or x)
     local ddy = y - (istate.lastPacketY or y)
-    local raw_vx = ddx / SERVER_INTERVAL
-    local raw_vy = ddy / SERVER_INTERVAL
+    local now = os.clock()
+    local dt = now - (istate.lastPacketTime or now)
+    istate.lastPacketTime = now
+    local raw_vx, raw_vy
+    if dt > 0.005 and dt < 1.0 then
+        raw_vx = ddx / dt
+        raw_vy = ddy / dt
+    else
+        raw_vx = 0
+        raw_vy = 0
+    end
+    istate.lastPacketDt = dt
     istate.vx = lerpVal(istate.vx or 0, raw_vx, 0.5)
     istate.vy = lerpVal(istate.vy or 0, raw_vy, 0.5)
     istate.lastPacketX = x
     istate.lastPacketY = y
 
     -- Log large target jumps; reset velocity on teleport/fast-travel
-    local jumpDist = math.sqrt(ddx*ddx + ddy*ddy + (z - (istate.tz or z))*(z - (istate.tz or z)))
+    -- Jump detection: XY only — Z changes from terrain must NOT reset velocity
+    local jumpDist = math.sqrt(ddx*ddx + ddy*ddy)
     if jumpDist > 5.0 then
         istate.vx = 0
         istate.vy = 0
-        mp_log(string.format("JUMP id=%s dist=%.2f vx/vy reset", id, jumpDist))
+        mp_log(string.format("JUMP id=%s xyDist=%.2f vx/vy reset", id, jumpDist))
     elseif jumpDist > 2.0 then
-        mp_log(string.format("JUMP id=%s dist=%.2f", id, jumpDist))
+        mp_log(string.format("JUMP id=%s xyDist=%.2f", id, jumpDist))
     end
 
     istate.tx = x
@@ -340,10 +338,6 @@ function KCD2MP_UpdateAnimation(id, ghost)
     if stance == "c" and speed > 4.0 then stance = "s" end
     local wantTag = calcAnimTag(speed, istate.animTag, stance)
 
-    if istate.animTag == wantTag then return end
-    local prevTag = istate.animTag or "?"
-    istate.animTag = wantTag
-
     local animName
     if wantTag == "sneak_walk" then
         if not KCD2MP._sneakWalkAnim then
@@ -369,16 +363,15 @@ function KCD2MP_UpdateAnimation(id, ghost)
         animName = anims[wantTag]
     end
 
-    -- Don't restart if the same animation is already playing (avoids mid-stride reset)
-    local alreadyPlaying = false
-    pcall(function() alreadyPlaying = ghost.entity:IsAnimationRunning(0, animName) end)
-    if not alreadyPlaying then
-        -- blend=0.4s: long enough to smoothly cross-fade without feeling sluggish
-        pcall(function() ghost.entity:StartAnimation(0, animName, 0, 0.4, 1.0, true) end)
+    -- Call StartAnimation every tick to override Mannequin's idle.
+    -- blend=0.15s: short enough to react quickly, long enough to not look choppy.
+    pcall(function() ghost.entity:StartAnimation(0, animName, 0, 0.15, 1.0, true) end)
+
+    -- Log only when tag actually changes
+    if istate.animTag ~= wantTag then
+        mp_log(string.format("Anim: %s %s->%s spd=%.2f", id, istate.animTag or "?", wantTag, speed))
+        istate.animTag = wantTag
     end
-    mp_log(string.format("Anim: %s %s->%s spd=%.1f sta=%s [%s]%s",
-        id, prevTag, wantTag, speed, stance, animName,
-        alreadyPlaying and " (skip-restart)" or ""))
 end
 
 -- ===== Interpolation Tick (20ms) =====
@@ -483,6 +476,8 @@ function KCD2MP_InterpTick()
 
             -- Smooth ghost toward render target (DR-extended, never snaps back)
             local factor = 0.5
+            local prevCx = istate.cx
+            local prevCy = istate.cy
             local nx = lerpVal(istate.cx, renderX, factor)
             local ny = lerpVal(istate.cy, renderY, factor)
             local nz = lerpVal(istate.cz, istate.tz or istate.cz, factor)
@@ -514,9 +509,6 @@ function KCD2MP_InterpTick()
                 end
             end
 
-            -- Apply position + rotation
-            -- Also tell AI to go here (suppresses wandering if AI.EnableUpdateAgent didn't work)
-            pcall(function() ghost.entity.AI:GoTo({x=x, y=y, z=sz}) end)
             local ok, err = pcall(function()
                 ghost.entity:SetWorldPos({x=x, y=y, z=sz})
                 ghost.entity:SetWorldAngles({x=0, y=0, z=r})
@@ -525,15 +517,11 @@ function KCD2MP_InterpTick()
                 System.LogAlways("[KCD2-MP] InterpTick err '" .. id .. "': " .. tostring(err))
                 ghost.entity = nil
             else
-                -- === Animation speed from PACKET velocity, NOT rendered position ===
-                -- istate.vx/vy = velocity from actual packet positions (smoothed EMA 0.5).
-                -- Using rendered position delta caused STEP_CAP artifacts: ghost slowed
-                -- by cap then surged to catch up → speed oscillated 3→7→3 m/s per tick.
-                local pvx = istate.vx or 0
-                local pvy = istate.vy or 0
-                local packetSpeed = math.sqrt(pvx*pvx + pvy*pvy)
-                -- Light EMA so speed follows packet changes without being too jumpy.
-                istate.smoothedSpeed = lerpVal(istate.smoothedSpeed or 0, packetSpeed, 0.25)
+                -- Speed from rendered XY movement this tick
+                local movedDx = nx - prevCx
+                local movedDy = ny - prevCy
+                local rendSpeed = math.sqrt(movedDx*movedDx + movedDy*movedDy) / 0.020
+                istate.smoothedSpeed = lerpVal(istate.smoothedSpeed or 0, rendSpeed, 0.4)
 
                 KCD2MP_UpdateAnimation(id, ghost)
             end
