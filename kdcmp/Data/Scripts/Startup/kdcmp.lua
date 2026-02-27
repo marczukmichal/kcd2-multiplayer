@@ -6,9 +6,12 @@ KCD2MP.running = false
 KCD2MP.interpRunning = false
 KCD2MP.tickCount = 0
 KCD2MP.ghosts = {}
+KCD2MP.ghostNames = {}          -- id → steam name (received via 0x03 Name packet from server)
+KCD2MP.horseGhosts = {}         -- id → {entity, entityId} horse ghost per player
 KCD2MP.workingClass = "AnimObject"
 KCD2MP.playerSneaking = false   -- set by OnAction hook when sneak key pressed
-KCD2MP.logActions = true        -- log all action names on first use (find sneak action name)
+KCD2MP.isRiding = false         -- updated each interp tick (player on horse detection)
+KCD2MP.logActions = false       -- set true only to discover action names (floods log)
 
 -- ===== Debug Logger =====
 -- Messages are queued in KCD2MP.debugLog (max 50).
@@ -153,28 +156,151 @@ function KCD2MP_SpawnGhost(id, x, y, z, rotZ)
         istate = istate,
     }
 
+    -- Schedule name apply after entity fully inits (soul may not be ready at spawn time).
+    -- Uses Steam nick if already received via 0x03, else fallback "Player<id>".
+    local captId = id
+    Script.SetTimer(1500, function()
+        local displayName = KCD2MP.ghostNames[captId] or ("Player" .. captId)
+        KCD2MP_ApplyGhostName(captId, displayName)
+    end)
+
     -- Auto-start interp loop as soon as we have a ghost to move
     KCD2MP_StartInterp()
 
     return entity
 end
 
+-- ===== Ghost Name (Steam nick above head) =====
+
+-- Actually applies name to a ready entity. Logs before/after to diagnose soul.name write.
+function KCD2MP_ApplyGhostName(id, name)
+    local ghost = KCD2MP.ghosts[id]
+    if not ghost or not ghost.entity then
+        mp_log("ApplyName id=" .. id .. " no entity")
+        return
+    end
+    local e = ghost.entity
+
+    -- Read current soul.name before assignment (to see what the default is)
+    local before = nil
+    pcall(function() before = e.soul and e.soul.name end)
+
+    -- Attempt 1: soul.name = plain string (KCD2 shows this in NPC nameplates)
+    local ok1 = pcall(function() e.soul.name = name end)
+    -- Attempt 2: soul.sName (alternative field name seen in some CryEngine versions)
+    local ok2 = pcall(function() e.soul.sName = name end)
+    -- Attempt 3: entity display name (used in some HUD contexts)
+    local ok3 = pcall(function() e:SetName(name) end)
+
+    -- Read back to verify assignment succeeded
+    local after = nil
+    pcall(function() after = e.soul and e.soul.name end)
+
+    mp_log(string.format("ApplyName id=%s name=%s ok1=%s ok2=%s ok3=%s before=%s after=%s",
+        id, name, tostring(ok1), tostring(ok2), tostring(ok3), tostring(before), tostring(after)))
+end
+
+-- Store name; if ghost already exists apply with short delay, else applied at spawn (1.5s).
+function KCD2MP_SetGhostName(id, name)
+    KCD2MP.ghostNames[id] = name
+    local ghost = KCD2MP.ghosts[id]
+    if ghost and ghost.entity then
+        -- Ghost already alive when name packet arrives — apply after 300ms
+        local captId = id
+        local captName = name
+        Script.SetTimer(300, function()
+            KCD2MP_ApplyGhostName(captId, captName)
+        end)
+    end
+    -- No ghost yet: name stored in ghostNames, applied at spawn (1.5s delay there)
+end
+
+-- ===== Horse Ghost Spawn / Remove =====
+
+function KCD2MP_SpawnHorse(id, x, y, z, rotZ)
+    if KCD2MP.horseGhosts[id] then
+        KCD2MP_RemoveHorse(id)
+    end
+
+    local pos = {x=x, y=y, z=z}
+    local horseName = "kcd2mp_horse_" .. id
+
+    -- Try class="Horse" first, then "Animal" as fallback
+    local ok, horse = pcall(System.SpawnEntity, {
+        class = "Horse",
+        position = pos,
+        name = horseName,
+    })
+
+    if not ok or not horse then
+        ok, horse = pcall(System.SpawnEntity, {
+            class = "Animal",
+            position = pos,
+            name = horseName,
+        })
+    end
+
+    if not ok or not horse then
+        mp_log("HorseSpawn FAILED id=" .. id .. " err=" .. tostring(horse))
+        return nil
+    end
+
+    pcall(function() horse:SetWorldAngles({x=0, y=0, z=rotZ or 0}) end)
+
+    KCD2MP.horseGhosts[id] = {
+        entity = horse,
+        entityId = horse.id,
+    }
+
+    mp_log("HorseSpawn OK id=" .. id .. " entityId=" .. tostring(horse.id))
+
+    -- Attempt to mount the ghost NPC onto the horse after a short delay (give entity time to init)
+    Script.SetTimer(400, function()
+        KCD2MP_MountNPCOnHorse(id)
+    end)
+
+    return horse
+end
+
+function KCD2MP_MountNPCOnHorse(id)
+    local ghost     = KCD2MP.ghosts[id]
+    local horseData = KCD2MP.horseGhosts[id]
+
+    if not ghost or not ghost.entity or not horseData or not horseData.entity then
+        mp_log("MountNPCOnHorse: missing entity id=" .. id)
+        return
+    end
+
+    -- MountAnimal and LinkToEntity both fail silently in KCD2 (no error, no effect).
+    -- Always use position-offset fallback: NPC placed at saddle height above horse.
+    ghost.istate.ridingFallback = true
+    mp_log("MountNPCOnHorse: ridingFallback=true id=" .. id)
+end
+
+function KCD2MP_RemoveHorse(id)
+    local horseData = KCD2MP.horseGhosts[id]
+    if not horseData then return end
+    if horseData.entityId then
+        pcall(function() System.RemoveEntity(horseData.entityId) end)
+    end
+    KCD2MP.horseGhosts[id] = nil
+    mp_log("RemoveHorse id=" .. id)
+end
+
 -- ===== Ghost Update (called by server each packet) =====
 
-function KCD2MP_UpdateGhost(id, x, y, z, rotZ, stance)
+function KCD2MP_UpdateGhost(id, x, y, z, rotZ, isRiding)
     local ghost = KCD2MP.ghosts[id]
 
-    -- Spawn if doesn't exist yet
+    -- Spawn if doesn't exist yet, then fall through to process isRiding on same call.
     if not ghost or not ghost.entity then
         KCD2MP_SpawnGhost(id, x, y, z, rotZ)
-        return
+        ghost = KCD2MP.ghosts[id]
+        if not ghost or not ghost.entity then return end  -- spawn failed
     end
 
     local istate = ghost.istate
-    if not istate then
-        KCD2MP_SpawnGhost(id, x, y, z, rotZ)
-        return
-    end
+    if not istate then return end
 
     local r = rotZ or istate.tr
 
@@ -215,14 +341,30 @@ function KCD2MP_UpdateGhost(id, x, y, z, rotZ, stance)
     istate.ty = y
     istate.tz = z
     istate.tr = r
-    istate.stance = stance or "s"
     istate.ticksSincePacket = 0
     istate.packetCount = istate.packetCount + 1
 
+    -- Horse riding sync
+    local riding = (isRiding == true)
+    local wasRiding = (istate.isRiding == true)
+    istate.isRiding = riding
+
+    if riding and not wasRiding then
+        -- Player just mounted a horse: spawn horse ghost
+        mp_log("Riding START id=" .. id)
+        KCD2MP_SpawnHorse(id, x, y, z, r)
+    elseif not riding and wasRiding then
+        -- Player dismounted: remove horse ghost, restore walk animation
+        mp_log("Riding STOP id=" .. id)
+        KCD2MP_RemoveHorse(id)
+        istate.ridingFallback = false
+        istate.animTag = "idle"  -- force animation reset
+    end
+
     if istate.packetCount % 40 == 1 then
         local spd = math.sqrt(raw_vx*raw_vx + raw_vy*raw_vy)
-        mp_log(string.format("pkt#%d id=%s pos=%.1f,%.1f,%.1f spd=%.1f",
-            istate.packetCount, id, x, y, z, spd))
+        mp_log(string.format("pkt#%d id=%s pos=%.1f,%.1f,%.1f spd=%.1f riding=%s",
+            istate.packetCount, id, x, y, z, spd, tostring(riding)))
     end
 end
 
@@ -287,6 +429,65 @@ local SNEAK_IDLE_ANIMS = {
 }
 KCD2MP._sneakWalkAnim = nil
 KCD2MP._sneakIdleAnim = nil
+
+-- Riding animation candidates (probed on first use, result cached).
+-- false = probed but none found (avoid re-probing every tick).
+local RIDING_IDLE_ANIMS = {
+    -- Confirmed working on KCD2 NPC class:
+    "horse_idle",
+    -- Simple names
+    "riding_idle", "riding_idle_both", "horse_riding_idle",
+    "mounted_idle", "horseback_idle", "cavalry_idle",
+    -- 3d_ prefix (confirmed KCD2 convention)
+    "3d_riding_idle", "3d_riding_idle_both",
+    "3d_horse_idle", "3d_horse_idle_both",
+    "3d_horseback_idle", "3d_mounted_idle",
+    "3d_relaxed_horse_idle", "3d_relaxed_horse_idle_both",
+    "3d_relaxed_riding_idle", "3d_relaxed_riding_idle_both",
+    -- relaxed_ prefix (confirmed KCD2 convention)
+    "relaxed_riding_idle", "relaxed_riding_idle_both",
+    "relaxed_horse_idle", "relaxed_horse_idle_both",
+    -- wagon / sit (seated pose that might work)
+    "wagon_idle", "wagon_idle_both", "wagon_ride_idle",
+    "sit_idle", "sit_idle_both", "3d_sit_idle",
+    "seated_idle", "seated_idle_both",
+    -- combat horse
+    "combat_horse_idle", "combat_horse_idle_both",
+    "3d_combat_horse_idle", "3d_combat_horse_idle_both",
+    -- act / mm prefix
+    "act_horse_idle", "mm_horse_idle",
+    -- npc specific
+    "npc_horse_idle", "npc_riding_idle",
+}
+local RIDING_GALLOP_ANIMS = {
+    -- Variants on the confirmed "horse_idle" name pattern:
+    "horse_gallop", "horse_run", "horse_trot", "horse_walk",
+    "horse_canter", "horse_sprint",
+    "riding_gallop", "riding_gallop_both",
+    "horse_riding_gallop",
+    "3d_riding_gallop", "3d_horse_gallop",
+    "3d_relaxed_horse_run", "relaxed_horse_run",
+    "riding_trot", "3d_horse_run", "3d_horse_trot",
+    "combat_horse_run", "mounted_gallop", "mounted_run",
+}
+KCD2MP._ridingIdleAnim  = nil   -- nil=not probed yet, false=not found, string=found
+KCD2MP._ridingGallopAnim = nil
+
+-- Horse entity animation candidates (Horse class entity, not NPC riding).
+local HORSE_ENTITY_IDLE_ANIMS = {
+    "idle", "stand", "horse_idle", "animal_idle",
+    "loco_idle", "act_idle", "mm_idle",
+    "walk_idle", "stand_idle", "relaxed_idle",
+}
+local HORSE_ENTITY_GALLOP_ANIMS = {
+    "gallop", "canter", "run", "trot", "walk",
+    "horse_gallop", "horse_canter", "horse_run", "horse_trot", "horse_walk",
+    "animal_gallop", "animal_run", "animal_walk",
+    "loco_gallop", "loco_run", "loco_walk",
+    "act_gallop", "act_run", "mm_gallop", "mm_run",
+}
+KCD2MP._horseEntityIdleAnim   = nil  -- nil=not probed, false=not found, string=found
+KCD2MP._horseEntityGallopAnim = nil
 
 local function findAnim(entity, candidates)
     for _, name in ipairs(candidates) do
@@ -480,7 +681,7 @@ function KCD2MP_InterpTick()
             local prevCy = istate.cy
             local nx = lerpVal(istate.cx, renderX, factor)
             local ny = lerpVal(istate.cy, renderY, factor)
-            local nz = lerpVal(istate.cz, istate.tz or istate.cz, factor)
+            local nz = istate.tz or istate.cz   -- Z tracks packet directly, no lerp (avoids sinking into rocks)
 
             istate.cx = nx
             istate.cy = ny
@@ -495,17 +696,20 @@ function KCD2MP_InterpTick()
             -- Floor snap: correct ghost Z against raycast floor.
             -- Snap-UP: underground up to 10m (handles slopes, slight embedding).
             -- Snap-DOWN: hovering up to 2m (hover fix; >2m cap prevents snapping off bridges).
+            -- Skip floor snap when riding: horse engine handles terrain, NPC follows horse.
             local sz = z
-            local floorZ, reliable = getFloorZ(x, y, z)
-            if floorZ then
-                local diff = sz - floorZ
-                if diff < -0.05 and diff > -10.0 then
-                    -- Underground up to 10m: snap up to floor
-                    sz = floorZ
-                    istate.cz = floorZ
-                elseif diff > 0.05 and diff < 2.0 then
-                    -- Hovering up to 2m above floor: snap down
-                    sz = floorZ
+            if not istate.isRiding then
+                local floorZ, reliable = getFloorZ(x, y, z)
+                if floorZ then
+                    local diff = sz - floorZ
+                    if diff < -0.05 and diff > -10.0 then
+                        -- Underground up to 10m: snap up to floor
+                        sz = floorZ
+                        istate.cz = floorZ
+                    elseif diff > 0.05 and diff < 2.0 then
+                        -- Hovering up to 2m above floor: snap down
+                        sz = floorZ
+                    end
                 end
             end
 
@@ -523,8 +727,113 @@ function KCD2MP_InterpTick()
                 local rendSpeed = math.sqrt(movedDx*movedDx + movedDy*movedDy) / 0.020
                 istate.smoothedSpeed = lerpVal(istate.smoothedSpeed or 0, rendSpeed, 0.4)
 
-                KCD2MP_UpdateAnimation(id, ghost)
+                if istate.isRiding then
+                    -- Probe valid riding animations once (on first ghost that is riding).
+                    if KCD2MP._ridingIdleAnim == nil then
+                        KCD2MP._ridingIdleAnim = findAnim(ghost.entity, RIDING_IDLE_ANIMS) or false
+                        mp_log("RideIdleAnim: " .. tostring(KCD2MP._ridingIdleAnim))
+                    end
+                    if KCD2MP._ridingGallopAnim == nil then
+                        KCD2MP._ridingGallopAnim = findAnim(ghost.entity, RIDING_GALLOP_ANIMS) or false
+                        mp_log("RideGallopAnim: " .. tostring(KCD2MP._ridingGallopAnim))
+                    end
+
+                    local rideAnim = (rendSpeed > 3.0 and KCD2MP._ridingGallopAnim)
+                                  or KCD2MP._ridingIdleAnim
+                    if rideAnim then
+                        pcall(function()
+                            ghost.entity:StartAnimation(0, rideAnim, 0, 0.3, 1.0, true)
+                        end)
+                    end
+
+                    -- Horse: always at terrain level. Use physics raycast (getFloorZ) because
+                    -- Terrain.GetElevation returns nil in KCD2 v1.5. sz = player/saddle height,
+                    -- raycast hits the actual ground below.
+                    local horseGroundZ = sz
+                    local hFloorZ, _ = getFloorZ(x, y, sz)
+                    if hFloorZ then horseGroundZ = hFloorZ end
+                    local horseData = KCD2MP.horseGhosts[id]
+                    if horseData and horseData.entity then
+                        pcall(function()
+                            horseData.entity:SetWorldPos({x=x, y=y, z=horseGroundZ})
+                            horseData.entity:SetWorldAngles({x=0, y=0, z=r})
+                        end)
+                        -- Probe horse entity animations once (same class = same result for all).
+                        if KCD2MP._horseEntityIdleAnim == nil then
+                            KCD2MP._horseEntityIdleAnim = findAnim(horseData.entity, HORSE_ENTITY_IDLE_ANIMS) or false
+                            mp_log("HorseEntityIdleAnim: " .. tostring(KCD2MP._horseEntityIdleAnim))
+                        end
+                        if KCD2MP._horseEntityGallopAnim == nil then
+                            KCD2MP._horseEntityGallopAnim = findAnim(horseData.entity, HORSE_ENTITY_GALLOP_ANIMS) or false
+                            mp_log("HorseEntityGallopAnim: " .. tostring(KCD2MP._horseEntityGallopAnim))
+                        end
+                        -- Apply horse animation based on speed.
+                        local horseAnim = (rendSpeed > 2.0 and KCD2MP._horseEntityGallopAnim)
+                                       or KCD2MP._horseEntityIdleAnim
+                        if horseAnim then
+                            pcall(function()
+                                horseData.entity:StartAnimation(0, horseAnim, 0, 0.3, 1.0, true)
+                            end)
+                        end
+                    end
+                    -- Fallback mount: NPC at saddle height above terrain (1.6m tuned for KCD2 Horse class)
+                    if istate.ridingFallback then
+                        pcall(function()
+                            ghost.entity:SetWorldPos({x=x, y=y, z=horseGroundZ + 1.6})
+                            ghost.entity:SetWorldAngles({x=0, y=0, z=r})
+                        end)
+                    end
+                else
+                    KCD2MP_UpdateAnimation(id, ghost)
+                end
             end
+        end
+    end
+
+    -- Update local player riding state every 5 ticks (~100ms)
+    if KCD2MP._ridingCheckTick == nil then KCD2MP._ridingCheckTick = 0 end
+    KCD2MP._ridingCheckTick = KCD2MP._ridingCheckTick + 1
+    if KCD2MP._ridingCheckTick >= 5 then
+        KCD2MP._ridingCheckTick = 0
+        if player then
+            local riding = false
+            -- Method 0: Find "Horse" class entity within 2.5m of player.
+            -- When riding, horse origin is ~1.5m below saddle (player pos).
+            -- Exclude our own ghost horses (kcd2mp_horse_*) to avoid false positives.
+            pcall(function()
+                local pos = player:GetWorldPos()
+                if pos then
+                    local ents = System.GetEntitiesInSphere(pos, 2.5)
+                    if ents then
+                        for _, e in ipairs(ents) do
+                            local ec = "?"
+                            local en = ""
+                            pcall(function() ec = tostring(e.class or "?") end)
+                            pcall(function() en = tostring(e:GetName() or "") end)
+                            if ec == "Horse" and not en:find("kcd2mp_horse_") then
+                                riding = true
+                            end
+                        end
+                    end
+                end
+            end)
+            -- Method 1: KCD2 human:IsRiding() (returns nil in v1.5, kept as fallback)
+            if not riding then
+                pcall(function()
+                    if player.human then
+                        local r = player.human:IsRiding()
+                        if r then riding = true end
+                    end
+                end)
+            end
+            -- Method 2: CryEngine linked parent
+            if not riding then
+                pcall(function()
+                    local p = player:GetLinkedParent()
+                    if p then riding = true end
+                end)
+            end
+            KCD2MP.isRiding = riding
         end
     end
 
@@ -558,6 +867,8 @@ end
 function KCD2MP_RemoveGhost(id)
     local ghost = KCD2MP.ghosts[id]
     if not ghost then return end
+    -- Remove horse ghost first (if riding)
+    KCD2MP_RemoveHorse(id)
     if ghost.entityId then
         pcall(function() System.RemoveEntity(ghost.entityId) end)
     end
@@ -570,6 +881,10 @@ function KCD2MP_RemoveAllGhosts()
     for id, _ in pairs(KCD2MP.ghosts) do
         KCD2MP_RemoveGhost(id)
         count = count + 1
+    end
+    -- Clean up any orphaned horse ghosts
+    for id, _ in pairs(KCD2MP.horseGhosts) do
+        KCD2MP_RemoveHorse(id)
     end
     System.LogAlways("[KCD2-MP] Removed " .. count .. " ghosts")
 end
@@ -1274,6 +1589,228 @@ function KCD2MP_SpawnKnight()
     KCD2MP_SpawnArmoredNPC(p.items, p.preset)
 end
 
+-- ===== Horse Diagnostics =====
+
+-- Runs in MOD context (has access to Terrain, player, etc).
+-- Writes result to sv_servername so probe_riding.ps1 can read it.
+function KCD2MP_DiagRideDetect()
+    if not player then
+        System.SetCVar("sv_servername", "player=nil")
+        return
+    end
+    local pos = player:GetWorldPos()
+    if not pos then
+        System.SetCVar("sv_servername", "GetWorldPos=nil")
+        return
+    end
+
+    -- Find entities within 6m - list all classes to identify the horse
+    local classes = {}
+    pcall(function()
+        local ents = System.GetEntitiesInSphere(pos, 6.0)
+        if ents then
+            for _, e in ipairs(ents) do
+                if e ~= player then
+                    local ec = "?"
+                    local ep = nil
+                    pcall(function() ec = tostring(e.class or "?") end)
+                    if ec == "?" then pcall(function() ec = tostring(e:GetClass()) end) end
+                    pcall(function() ep = e:GetWorldPos() end)
+                    local d = ep and math.sqrt((ep.x-pos.x)^2+(ep.y-pos.y)^2+(ep.z-pos.z)^2) or 99
+                    if d < 6 then
+                        classes[#classes+1] = string.format("%s:%.1f", ec, d)
+                    end
+                end
+            end
+        end
+    end)
+
+    local clStr = table.concat(classes, " | ")
+    if clStr == "" then clStr = "none" end
+    -- Trim to fit CVar (max ~200 chars)
+    if #clStr > 180 then clStr = clStr:sub(1,180) end
+    System.SetCVar("sv_servername", clStr)
+end
+
+-- Probe ALL riding anim candidates on any ghost currently in riding state.
+-- Shows which names have GetAnimationLength > 0.
+-- Also tries to get current player animation name (for when player is on horse).
+function KCD2MP_ProbeRidingAnims()
+    -- Find first riding ghost
+    local ghost = nil
+    for _, g in pairs(KCD2MP.ghosts) do
+        if g.istate and g.istate.isRiding then ghost = g; break end
+    end
+    -- Fall back to any ghost
+    if not ghost then
+        for _, g in pairs(KCD2MP.ghosts) do ghost = g; break end
+    end
+    if not ghost or not ghost.entity then
+        System.LogAlways("[KCD2-MP] ProbeRidingAnims: no ghost. Spawn one first.")
+        return
+    end
+
+    System.LogAlways("[KCD2-MP] === PROBE RIDING ANIMS ===")
+    local ent = ghost.entity
+    local allCandidates = {}
+    for _, v in ipairs(RIDING_IDLE_ANIMS)   do allCandidates[#allCandidates+1] = v end
+    for _, v in ipairs(RIDING_GALLOP_ANIMS) do allCandidates[#allCandidates+1] = v end
+    -- Extra patterns
+    local extras = {
+        "horse", "Horse", "riding", "Riding", "mounted", "Mounted",
+        "3d_horse", "3d_riding", "3d_mounted",
+        "horse_walk", "horse_run", "horse_idle", "horse_gallop",
+        "act_horse", "act_riding", "act_mounted",
+        "loco_horse", "loco_riding",
+    }
+    for _, v in ipairs(extras) do allCandidates[#allCandidates+1] = v end
+
+    local hits = 0
+    for _, name in ipairs(allCandidates) do
+        local len = 0
+        pcall(function() len = ent:GetAnimationLength(0, name) or 0 end)
+        if len > 0 then
+            System.LogAlways(string.format("[KCD2-MP] RIDING HIT: '%s' len=%.3f", name, len))
+            hits = hits + 1
+        end
+    end
+    System.LogAlways(string.format("[KCD2-MP] Riding anims found: %d / %d tested", hits, #allCandidates))
+
+    -- Also try to read the current animation name from player (if riding a horse right now)
+    local ok, an = pcall(function()
+        if player then
+            local n = nil
+            pcall(function() n = player:GetCurrentAnimationName(0) end)
+            return n
+        end
+    end)
+    System.LogAlways("[KCD2-MP] Player current anim: " .. tostring(an) .. " (useful if player is on horse)")
+    System.LogAlways("[KCD2-MP] === END ===")
+end
+
+-- Find horse/animal entities near player and log their class names
+function KCD2MP_FindHorses()
+    if not player then System.LogAlways("[KCD2-MP] FindHorses: no player"); return end
+    local ppos = player:GetWorldPos()
+    System.LogAlways("[KCD2-MP] === FIND HORSES ===")
+
+    local ok, err = pcall(function()
+        local ents = System.GetEntitiesInSphere(ppos, 60)
+        if not ents then System.LogAlways("[KCD2-MP] GetEntitiesInSphere returned nil"); return end
+
+        local count = 0
+        for _, ent in ipairs(ents) do
+            if ent ~= player then
+                local eclass = "?"
+                local ename  = "?"
+                pcall(function() eclass = tostring(ent.class or "?") end)
+                pcall(function() ename  = tostring(ent:GetName()) end)
+
+                -- Log anything that looks like it could be a horse or animal
+                local lc = eclass:lower()
+                local ln = ename:lower()
+                if lc:find("horse") or lc:find("animal") or lc:find("mount") or lc:find("creature")
+                   or ln:find("horse") or ln:find("roach") or ln:find("pebbles") or ln:find("animal")
+                then
+                    local pos = nil
+                    pcall(function() pos = ent:GetWorldPos() end)
+                    local dist = pos and math.sqrt((pos.x-ppos.x)^2+(pos.y-ppos.y)^2) or -1
+                    System.LogAlways(string.format("[KCD2-MP] HORSE? class='%s' name='%s' dist=%.1fm",
+                        eclass, ename, dist))
+                    count = count + 1
+                end
+            end
+        end
+
+        -- Also just log ALL entity classes within 15m (to catch horses with unexpected class names)
+        System.LogAlways("[KCD2-MP] --- All entities within 15m ---")
+        for _, ent in ipairs(ents) do
+            local eclass = "?"
+            local ename  = "?"
+            pcall(function() eclass = tostring(ent.class or "?") end)
+            pcall(function() ename  = tostring(ent:GetName()) end)
+            local pos = nil
+            pcall(function() pos = ent:GetWorldPos() end)
+            local dist = pos and math.sqrt((pos.x-ppos.x)^2+(pos.y-ppos.y)^2) or 99
+            if dist < 15 then
+                System.LogAlways(string.format("[KCD2-MP]   class='%s' name='%s' dist=%.1fm",
+                    eclass, ename, dist))
+            end
+        end
+        System.LogAlways(string.format("[KCD2-MP] Horse-like entities found: %d", count))
+    end)
+    if not ok then System.LogAlways("[KCD2-MP] FindHorses error: " .. tostring(err)) end
+    System.LogAlways("[KCD2-MP] === END ===")
+end
+
+-- Force-spawn a horse using several class name guesses to find what works in KCD2
+function KCD2MP_SpawnHorseTest()
+    if not player then System.LogAlways("[KCD2-MP] SpawnHorseTest: no player"); return end
+    local pos = player:GetWorldPos()
+    if not pos then return end
+
+    -- Offset 4m to the right of player
+    local spawnPos = {x = pos.x + 4, y = pos.y, z = pos.z}
+
+    local classes = {
+        "Horse", "Animal", "HorseAnimal", "horse", "animal",
+        "kcd_horse", "RPGHorse", "CreatureAnimal", "Creature",
+    }
+
+    System.LogAlways("[KCD2-MP] === SPAWN HORSE TEST ===")
+    for _, cls in ipairs(classes) do
+        local ok, ent = pcall(System.SpawnEntity, {
+            class    = cls,
+            position = spawnPos,
+            name     = "kcd2mp_horsetest_" .. cls,
+        })
+        if ok and ent then
+            System.LogAlways(string.format("[KCD2-MP] SUCCESS class='%s' entityId=%s", cls, tostring(ent.id)))
+            -- Don't remove it - let user see which one appears in-game
+        else
+            System.LogAlways(string.format("[KCD2-MP] FAIL class='%s' err=%s", cls, tostring(ent)))
+        end
+    end
+    System.LogAlways("[KCD2-MP] === END ===")
+end
+
+-- Log current riding detection state for the local player
+function KCD2MP_RidingState()
+    System.LogAlways("[KCD2-MP] === RIDING STATE ===")
+    System.LogAlways("[KCD2-MP] KCD2MP.isRiding = " .. tostring(KCD2MP.isRiding))
+
+    if not player then System.LogAlways("[KCD2-MP] player=nil"); return end
+
+    -- Test method 1: human:IsRiding
+    local ok1, r1 = pcall(function()
+        if player.human then
+            return player.human:IsRiding()
+        end
+        return "human=nil"
+    end)
+    System.LogAlways("[KCD2-MP] human:IsRiding() ok=" .. tostring(ok1) .. " val=" .. tostring(r1))
+
+    -- Test method 2: GetLinkedParent
+    local ok2, r2 = pcall(function() return player:GetLinkedParent() end)
+    System.LogAlways("[KCD2-MP] GetLinkedParent() ok=" .. tostring(ok2) .. " val=" .. tostring(r2))
+
+    -- Test method 3: soul state
+    local ok3, r3 = pcall(function()
+        if player.soul then return player.soul.bRiding end
+        return "soul=nil"
+    end)
+    System.LogAlways("[KCD2-MP] soul.bRiding ok=" .. tostring(ok3) .. " val=" .. tostring(r3))
+
+    -- Test method 4: actor mount
+    local ok4, r4 = pcall(function()
+        if player.actor then return player.actor:GetMount() end
+        return "actor=nil"
+    end)
+    System.LogAlways("[KCD2-MP] actor:GetMount() ok=" .. tostring(ok4) .. " val=" .. tostring(r4))
+
+    System.LogAlways("[KCD2-MP] === END ===")
+end
+
 -- ===== Register Console Commands =====
 
 local ok, err = pcall(function()
@@ -1299,6 +1836,9 @@ local ok, err = pcall(function()
     System.AddCCommand("mp_spawn_armor",  'KCD2MP_SpawnArmoredNPC("%LINE")',  "Spawn NPC with items: mp_spawn_armor guid1,guid2,...")
     System.AddCCommand("mp_spawn_knight",    "KCD2MP_SpawnKnight()",    "Spawn fully armored knight (BascinetVisor04+Cuirass07+Gauntlets08+LegsPlate03+MailLong01)")
     System.AddCCommand("mp_spawn_white_red", "KCD2MP_SpawnWhiteRed()", "Spawn white/red armored NPC (Brigandine10+BascinetVisor05+sword)")
+    System.AddCCommand("mp_find_horses",     "KCD2MP_FindHorses()",     "Find horse entities near player - shows class names")
+    System.AddCCommand("mp_spawn_horse_test","KCD2MP_SpawnHorseTest()", "Force-spawn a horse at player position (class probe)")
+    System.AddCCommand("mp_riding_state",    "KCD2MP_RidingState()",    "Log current riding detection state")
     System.LogAlways("[KCD2-MP] Commands OK")
 end)
 if not ok then
@@ -1307,12 +1847,10 @@ end
 
 -- ===== Sneak action handler (shared, installed by both hook paths) =====
 
--- KCD2 sneak key = C, fires "chat_init_with_focus" as TOGGLE (press=toggle on/off).
--- Activations come as STRINGS "press"/"release"/"hold" (not integers).
+-- Toggle-style sneak actions (each press flips state).
+-- NOTE: chat_init_with_focus is NOT sneak – it's the focus/chat key (triggered by Tab/V).
+-- Stance is detected via player:GetStance() polling in KCD2MP_Exchange (reliable fallback).
 local SNEAK_TOGGLE_ACTIONS = {
-    -- Confirmed KCD2: C key triggers these
-    chat_init_with_focus = true,
-    -- Fallback: other common names in case C is rebound
     sneak_toggle=true, toggle_sneak=true,
 }
 -- Hold-style sneak: pressed=on, released=off (other games/bindings)
