@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
+using KcdMp.Client.Lua;
 
 namespace KcdMp.Client;
 
@@ -289,16 +290,11 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
 
     private async Task UpdateGhostAsync(string ghostId, float x, float y, float z, float rotZ, bool isRiding)
     {
-        string gx   = x.ToString("F2",  CultureInfo.InvariantCulture);
-        string gy   = y.ToString("F2",  CultureInfo.InvariantCulture);
-        string gz   = z.ToString("F2",  CultureInfo.InvariantCulture);
-        string rot  = rotZ.ToString("F4", CultureInfo.InvariantCulture);
-        string ride = isRiding ? "true" : "false";
 
         try
         {
-            await ExecLuaAsync($@"KCD2MP_UpdateGhost(""{ghostId}"",{gx},{gy},{gz},{rot},{ride})");
-            Console.WriteLine($"[ghost {ghostId}] {gx} {gy} {gz} riding={isRiding}");
+            await ExecLuaAsync(new LuaUpdateGhost().GetExecution((ghostId, x, y, z, rotZ, isRiding)));
+            Console.WriteLine($"[ghost {ghostId}] {x} {y} {z} riding={isRiding}");
         }
         catch { /* game might have unloaded */ }
     }
@@ -309,12 +305,12 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
         var safeName = ghostName.Replace("\\", "\\\\").Replace("\"", "\\\"");
         try
         {
-            await ExecLuaAsync($@"KCD2MP_SetGhostName(""{ghostId}"",""{safeName}"")");
+            await ExecLuaAsync(new LuaSetGhostName().GetExecution((ghostId, safeName)));
             Console.WriteLine($"[name] ghost {ghostId} = {ghostName}");
         }
         catch { }
     }
-
+    
     private async Task ExecLuaAsync(string lua)
     {
         var cmd = Uri.EscapeDataString($"#{lua}");
