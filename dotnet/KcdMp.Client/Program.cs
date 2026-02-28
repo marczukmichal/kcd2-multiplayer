@@ -10,7 +10,7 @@ string name        = args.Length > 2 ? args[2]
     : GetSteamNameFromKcdLog()   // primary: kcd.log written by KCD2's own Steam API
     ?? GetSteamPersonaName()     // fallback: loginusers.vdf
     ?? Environment.MachineName;  // last resort
-string gameApiBase = args.Length > 3 ? args[3] : "http://localhost:1404";
+string gameApiBase = args.Length > 3 ? args[3] : "http://localhost:1403";
 
 // ---------------------------------------------------------------------------
 // Find all Steam library paths via libraryfolders.vdf, then look for
