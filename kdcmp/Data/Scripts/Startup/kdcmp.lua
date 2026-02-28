@@ -487,6 +487,15 @@ end
 function KCD2MP_LabelTick()
     if not KCD2MP.labelRunning then return end
     Script.SetTimer(8, KCD2MP_LabelTick)
+    -- Update horse positions at 8ms to avoid 20ms stutter (physics fights SetWorldPos less).
+    for id, horseData in pairs(KCD2MP.horseGhosts) do
+        if horseData.entity and horseData.renderX then
+            pcall(function()
+                horseData.entity:SetWorldPos({x=horseData.renderX, y=horseData.renderY, z=horseData.renderZ})
+                horseData.entity:SetWorldAngles({x=0, y=0, z=horseData.renderR})
+            end)
+        end
+    end
     for id, lbl in pairs(KCD2MP.labelCache) do
         if lbl.size > 0 then
             pcall(function()
@@ -550,15 +559,16 @@ local RIDING_IDLE_ANIMS = {
     "npc_horse_idle", "npc_riding_idle",
 }
 local RIDING_GALLOP_ANIMS = {
-    -- Variants on the confirmed "horse_idle" name pattern:
-    "horse_gallop", "horse_run", "horse_trot", "horse_walk",
-    "horse_canter", "horse_sprint",
+    -- Based on confirmed idle pattern: 1d_idle_slope_relaxed_idle_rider_01
+    "1d_gallop_slope_relaxed_gallop_rider_01",
+    "1d_canter_slope_relaxed_canter_rider_01",
+    "1d_trot_slope_relaxed_trot_rider_01",
+    "1d_walk_slope_relaxed_walk_rider_01",
+    -- Other candidates
+    "horse_gallop", "horse_run", "horse_trot", "horse_canter",
     "riding_gallop", "riding_gallop_both",
-    "horse_riding_gallop",
     "3d_riding_gallop", "3d_horse_gallop",
-    "3d_relaxed_horse_run", "relaxed_horse_run",
-    "riding_trot", "3d_horse_run", "3d_horse_trot",
-    "combat_horse_run", "mounted_gallop", "mounted_run",
+    "relaxed_horse_run", "combat_horse_run", "mounted_gallop",
 }
 KCD2MP._ridingIdleAnim  = nil   -- nil=not probed yet, false=not found, string=found
 KCD2MP._ridingGallopAnim = nil
@@ -574,21 +584,23 @@ local HORSE_ENTITY_IDLE_ANIMS = {
     "walk_idle", "stand_idle",
     "horse_stand", "horse_stand_idle", "horse_rest",
 }
+-- Separate walk vs gallop so we don't accidentally use relaxed_walk for full gallop.
+local HORSE_ENTITY_WALK_ANIMS = {
+    "relaxed_walk", "relaxed_trot",
+    "horse_walk", "horse_trot", "walk", "trot",
+}
 local HORSE_ENTITY_GALLOP_ANIMS = {
-    -- Confirmed present on KCD2 horse entities (from mp_scan_horse on real game horse):
-    "relaxed_walk", "relaxed_run", "relaxed_gallop", "relaxed_canter", "relaxed_trot",
+    -- Fastest gaits first — confirmed on KCD2 horse entities:
+    "relaxed_gallop", "relaxed_canter", "relaxed_run",
     -- Other candidates:
-    "gallop", "canter", "run", "trot", "walk",
-    "horse_gallop", "horse_canter", "horse_run", "horse_trot", "horse_walk",
-    "gallop_loop", "trot_loop", "canter_loop", "walk_loop",
-    "horse_gallop_loop", "horse_trot_loop", "horse_canter_loop", "horse_walk_loop",
-    "horse_loco_gallop", "horse_loco_trot", "horse_loco_walk", "horse_loco_run",
-    "animal_gallop", "animal_run", "animal_walk",
-    "loco_gallop", "loco_run", "loco_walk",
-    "act_gallop", "act_run", "mm_gallop", "mm_run",
-    "horse_gallop_01", "horse_trot_01", "horse_walk_01",
+    "gallop", "canter", "run",
+    "horse_gallop", "horse_canter", "horse_run",
+    "horse_loco_gallop", "horse_loco_run",
+    "animal_gallop", "animal_run",
+    "loco_gallop", "loco_run",
 }
 KCD2MP._horseEntityIdleAnim   = nil  -- nil=not probed, false=not found, string=found
+KCD2MP._horseEntityWalkAnim   = nil
 KCD2MP._horseEntityGallopAnim = nil
 
 local function findAnim(entity, candidates)
@@ -870,12 +882,19 @@ function KCD2MP_InterpTick()
                         mp_log("RideGallopAnim: " .. tostring(KCD2MP._ridingGallopAnim))
                     end
 
-                    -- When nativeMounted, engine sync system handles rider animation automatically
-                    -- (assigns 1d_idle_slope_relaxed_idle_rider_01 etc). Do NOT fight it with
-                    -- StartAnimation here — that causes duration mismatch warnings and breaks sync.
-                    -- Only play manually if ForceMount failed (ridingFallback mode).
-                    if not istate.nativeMounted then
-                        local rideAnim = (rendSpeed > 3.0 and KCD2MP._ridingGallopAnim)
+                    -- Engine sync auto-assigns idle rider anim at ForceMount time.
+                    -- For gallop we must set it explicitly — engine does NOT auto-update.
+                    -- ridingFallback: engine failed to mount, set all anims manually.
+                    local isGallop = rendSpeed > 3.0
+                    if istate.nativeMounted then
+                        -- Only override for gallop; leave idle to engine sync system.
+                        if isGallop and KCD2MP._ridingGallopAnim then
+                            pcall(function()
+                                ghost.entity:StartAnimation(0, KCD2MP._ridingGallopAnim, 0, 0.3, 1.0, true)
+                            end)
+                        end
+                    else
+                        local rideAnim = (isGallop and KCD2MP._ridingGallopAnim)
                                       or KCD2MP._ridingIdleAnim
                         if rideAnim then
                             pcall(function()
@@ -911,31 +930,37 @@ function KCD2MP_InterpTick()
                         local hz = horseData.smoothZ
                         local hr = horseData.smoothR
 
-                        -- Probe horse entity animations once (separate from NPC probe above).
-                        -- relaxed_idle / relaxed_gallop are confirmed on real KCD2 horse entities.
-                        -- The KCD2 sync system pairs: horse relaxed_idle → rider 1d_idle_slope_*
-                        -- (matching durations). horse_idle (NPC default) does NOT match → warning.
+                        -- Probe horse entity animations once.
                         if KCD2MP._horseEntityIdleAnim == nil then
                             KCD2MP._horseEntityIdleAnim = findAnim(horseData.entity, HORSE_ENTITY_IDLE_ANIMS) or false
                             mp_log("HorseEntityIdleAnim: " .. tostring(KCD2MP._horseEntityIdleAnim))
+                        end
+                        if KCD2MP._horseEntityWalkAnim == nil then
+                            KCD2MP._horseEntityWalkAnim = findAnim(horseData.entity, HORSE_ENTITY_WALK_ANIMS) or false
+                            mp_log("HorseEntityWalkAnim: " .. tostring(KCD2MP._horseEntityWalkAnim))
                         end
                         if KCD2MP._horseEntityGallopAnim == nil then
                             KCD2MP._horseEntityGallopAnim = findAnim(horseData.entity, HORSE_ENTITY_GALLOP_ANIMS) or false
                             mp_log("HorseEntityGallopAnim: " .. tostring(KCD2MP._horseEntityGallopAnim))
                         end
 
-                        -- Position horse via SetWorldPos every tick.
-                        -- AI.SetForcedNavigation was tried but Horse entities have no navmesh
-                        -- agent → pcall succeeds but horse doesn't move. Always use SetWorldPos.
-                        pcall(function()
-                            horseData.entity:SetWorldPos({x=x, y=y, z=hz})
-                            horseData.entity:SetWorldAngles({x=0, y=0, z=hr})
-                        end)
-                        -- Play horse entity animation (idle or gallop).
-                        -- Use relaxed_idle for idle so engine sync system assigns matching
-                        -- rider animation (1d_idle_slope_relaxed_idle_rider_01) with correct duration.
-                        local horseAnim = (spd > 1.0 and KCD2MP._horseEntityGallopAnim)
-                                       or KCD2MP._horseEntityIdleAnim
+                        -- Store render target for 8ms render loop (avoids 20ms stutter).
+                        horseData.renderX = x
+                        horseData.renderY = y
+                        horseData.renderZ = hz
+                        horseData.renderR = hr
+
+                        -- Play horse entity animation based on speed.
+                        -- relaxed_idle → engine sync assigns matching rider idle.
+                        -- relaxed_gallop → we explicitly set rider gallop above.
+                        local horseAnim
+                        if spd > 3.0 then
+                            horseAnim = KCD2MP._horseEntityGallopAnim or KCD2MP._horseEntityWalkAnim
+                        elseif spd > 0.5 then
+                            horseAnim = KCD2MP._horseEntityWalkAnim or KCD2MP._horseEntityGallopAnim
+                        else
+                            horseAnim = KCD2MP._horseEntityIdleAnim
+                        end
                         if horseAnim then
                             pcall(function()
                                 horseData.entity:StartAnimation(0, horseAnim, 0, 0.2, 1.0, true)

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Sockets;
 using System.Text;
@@ -40,7 +41,11 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
     private volatile bool  _cachedIsRiding = false;
 
     // Ping: maps sent timestamp (ticks) → Stopwatch timestamp at send time
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, long> _pingsSent = new();
+    private readonly ConcurrentDictionary<long, long> _pingsSent = new();
+
+    // Voice: frames captured by VoiceChat are queued here, drained in main loop
+    private readonly ConcurrentQueue<byte[]> _voiceQueue = new();
+    private VoiceChat? _voice;
 
     public async Task RunAsync(CancellationToken ct = default)
     {
@@ -135,6 +140,11 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
         try { await ExecLuaAsync("if KCD2MP_StartInterp then KCD2MP_StartInterp() end"); }
         catch { /* ignore if mod not loaded yet */ }
 
+        // Start voice chat — frames captured on background thread, queued, sent in main loop.
+        _voice = new VoiceChat(frame => _voiceQueue.Enqueue(frame));
+        try { _voice.Start(); }
+        catch (Exception ex) { Console.WriteLine($"[voice] Failed to start: {ex.Message}"); }
+
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(appCt);
 
         // Start background tasks
@@ -162,6 +172,13 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                     float rotZ    = _cachedRotZ;
                     bool  riding  = _cachedIsRiding;
 
+                    // Update voice local position and recalculate all player volumes.
+                    if (_voice != null)
+                    {
+                        _voice.LocalPos = (x, y, z);
+                        _voice.UpdateAllVolumes();
+                    }
+
                     if (!_hasPushed || HasChanged(x, y, z, rotZ))
                     {
                         _hasPushed = true;
@@ -170,6 +187,10 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                         Console.WriteLine($"[pos] {x:F1} {y:F1} {z:F1}  rot={rotZ:F2}  riding={riding}  read={sw.ElapsedMilliseconds}ms");
                     }
                 }
+
+                // Drain captured voice frames and send to server.
+                while (_voiceQueue.TryDequeue(out var voiceFrame))
+                    await SendVoiceAsync(stream, voiceFrame);
 
                 // Print average read time every 100 ticks
                 if (tickCount % 100 == 0)
@@ -184,6 +205,9 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
             try { await receiveTask;  } catch { }
             try { await rotStateTask; } catch { }
             try { await pingTask;     } catch { }
+            _voice?.Stop();
+            _voice?.Dispose();
+            _voice = null;
             Console.WriteLine("Removing all ghosts...");
             try { await ExecLuaAsync("KCD2MP_RemoveAllGhosts()"); } catch { }
         }
@@ -285,6 +309,7 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                     float z        = ReadFloat(payload, 9);
                     float rotZ     = ReadFloat(payload, 13);
                     bool  isRiding = payloadLen >= 18 && (payload[17] & 0x01) != 0;
+                    _voice?.UpdateGhostPos(ghostId, x, y, z);
                     await UpdateGhostAsync(ghostId.ToString(), x, y, z, rotZ, isRiding);
                 }
                 else if (type == 0x03 && payloadLen >= 2)
@@ -299,7 +324,16 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                     // Disconnect packet: [ghostId:1]
                     byte ghostId = payload[0];
                     Console.WriteLine($"[disconnect] ghost {ghostId} removed");
+                    _voice?.RemovePlayer(ghostId);
                     try { await ExecLuaAsync($"KCD2MP_RemoveGhost(\"{ghostId}\")"); } catch { }
+                }
+                else if (type == 0x08 && payloadLen == 641)
+                {
+                    // Voice packet: [sourceId:1][pcm: 640 bytes]
+                    byte sourceId = payload[0];
+                    var pcm = new byte[640];
+                    Buffer.BlockCopy(payload, 1, pcm, 0, 640);
+                    _voice?.OnVoiceReceived(sourceId, pcm);
                 }
             }
         }
@@ -374,6 +408,16 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
     // -------------------------------------------------------------------------
     // TCP helpers
     // -------------------------------------------------------------------------
+
+    private static async Task SendVoiceAsync(NetworkStream stream, byte[] pcm)
+    {
+        // 3 header + 640 payload = 643 bytes
+        var packet = new byte[3 + 640];
+        packet[0] = 0x07;
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(1), 640);
+        Buffer.BlockCopy(pcm, 0, packet, 3, 640);
+        await stream.WriteAsync(packet);
+    }
 
     private static async Task SendPositionAsync(NetworkStream stream, float x, float y, float z, float rotZ, bool isRiding)
     {

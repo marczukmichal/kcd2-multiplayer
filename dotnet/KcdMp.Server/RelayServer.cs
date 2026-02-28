@@ -69,6 +69,17 @@ public class RelayServer(int port, bool echo = false)
             target.EnqueueName(source.Id, source.Name);
     }
 
+    /// <summary>Relays a Voice (0x08) frame from <paramref name="source"/> to all other ready clients.</summary>
+    public void BroadcastVoice(ClientSession source, byte[] pcm)
+    {
+        List<ClientSession> targets;
+        lock (_lock)
+            targets = [.. _clients.Where(c => c != source && c.IsReady)];
+
+        foreach (var target in targets)
+            target.EnqueueVoice(source.Id, pcm);
+    }
+
     /// <summary>Broadcasts a Disconnect (0x06) packet to all remaining clients so they can remove the ghost.</summary>
     public void BroadcastDisconnect(ClientSession disconnected)
     {

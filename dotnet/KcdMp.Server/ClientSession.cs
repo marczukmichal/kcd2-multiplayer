@@ -18,8 +18,10 @@ namespace KcdMp.Server;
 /// S→C  0xFF  Ack:        [assignedId:1]
 /// S→C  0x02  Ghost:      [ghostId:1][x:4f][y:4f][z:4f][rotZ:4f][flags:1]  (18 bytes)
 /// S→C  0x03  Name:       [ghostId:1][name:UTF-8...]
+/// C→S  0x07  Voice:      [pcm: 640 bytes]  (16kHz mono 16-bit, 20 ms frame)
 /// S→C  0x05  Pong:       [timestamp:8 LE int64]  (echo of Ping)
 /// S→C  0x06  Disconnect: [ghostId:1]
+/// S→C  0x08  Voice:      [sourceId:1][pcm: 640 bytes]
 /// </summary>
 public class ClientSession
 {
@@ -88,6 +90,15 @@ public class ClientSession
                     continue;
                 }
 
+                if (type == 0x07 && payloadLen == 640)
+                {
+                    // Voice frame → relay to all other ready clients
+                    var pcm = new byte[640];
+                    await ReadExactAsync(pcm);
+                    _server.BroadcastVoice(this, pcm);
+                    continue;
+                }
+
                 if (type != 0x01 || (payloadLen != 16 && payloadLen != 17))
                 {
                     // Skip unknown/malformed packet
@@ -139,6 +150,15 @@ public class ClientSession
     /// <summary>Thread-safe: enqueue a Disconnect packet (0x06) to be sent to this client.</summary>
     public void EnqueueDisconnect(byte ghostId) =>
         EnqueueRaw(BuildPacket(0x06, [ghostId]));
+
+    /// <summary>Thread-safe: enqueue a Voice packet (0x08) to be sent to this client.</summary>
+    public void EnqueueVoice(byte sourceId, byte[] pcm)
+    {
+        var payload = new byte[1 + pcm.Length];
+        payload[0] = sourceId;
+        Buffer.BlockCopy(pcm, 0, payload, 1, pcm.Length);
+        EnqueueRaw(BuildPacket(0x08, payload));
+    }
 
     /// <summary>Thread-safe: enqueue a Name packet (0x03) to be sent to this client.</summary>
     public void EnqueueName(byte ghostId, string name)
