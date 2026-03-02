@@ -11,7 +11,7 @@ public abstract class LuaCommand<TArgs> where TArgs : struct
     public string GetExecution(TArgs args)
     {
         var values = typeof(TArgs).GetFields();
-        var sb = new StringBuilder($"{LuaName}");
+        var sb = new StringBuilder($"{LuaName}(");
         
         for (int i = 0; i < values.Length; i++)
         {
