@@ -7,6 +7,8 @@ KCD2MP.interpRunning = false
 KCD2MP.tickCount = 0
 KCD2MP.ghosts = {}
 KCD2MP.ghostNames = {}          -- id → steam name (received via 0x03 Name packet from server)
+KCD2MP.labelCache = {}          -- id → {x,y,z,size,name}  updated by interp, drawn by render loop
+KCD2MP.labelRunning = false
 KCD2MP.horseGhosts = {}         -- id → {entity, entityId} horse ghost per player
 KCD2MP.workingClass = "AnimObject"
 KCD2MP.playerSneaking = false   -- set by OnAction hook when sneak key pressed
@@ -55,6 +57,14 @@ end
 local function clamp(v, lo, hi)
     if v < lo then return lo elseif v > hi then return hi end
     return v
+end
+
+-- ===== Ping Display =====
+-- Called by C# every ~2s after Pong. Stored for render loop to draw via DrawLabel.
+-- Game.ShowNotification adds unwanted "@" decorators so we use DrawLabel instead.
+function KCD2MP_ShowPing(ms)
+    KCD2MP.ping = ms
+    KCD2MP.pingText = string.format("Ping: %d ms", ms)
 end
 
 -- ===== Player Position =====
@@ -467,6 +477,29 @@ function KCD2MP_StartInterp()
     KCD2MP.interpRunning = true
     System.LogAlways("[KCD2-MP] Interp tick started (20ms)")
     Script.SetTimer(20, KCD2MP_InterpTick)
+    -- Start label render loop if not already running (8ms < 16.7ms frame = no flicker)
+    if not KCD2MP.labelRunning then
+        KCD2MP.labelRunning = true
+        Script.SetTimer(8, KCD2MP_LabelTick)
+    end
+end
+
+function KCD2MP_LabelTick()
+    if not KCD2MP.labelRunning then return end
+    Script.SetTimer(8, KCD2MP_LabelTick)
+    for id, lbl in pairs(KCD2MP.labelCache) do
+        if lbl.size > 0 then
+            pcall(function()
+                System.DrawLabel({x=lbl.x, y=lbl.y, z=lbl.z}, lbl.size, lbl.name, 1, 1, 0, 1)
+            end)
+        end
+    end
+    -- Draw ping in top-left corner using 2D screen-space DrawText(x, y, text, size).
+    if KCD2MP.pingText then
+        pcall(function()
+            System.DrawText(10, 10, KCD2MP.pingText, 2)
+        end)
+    end
 end
 
 -- ===== Animation Update =====
@@ -716,6 +749,10 @@ function KCD2MP_InterpTick()
         mp_log("TICK_ALIVE #" .. KCD2MP._tickN .. " ghosts=" .. gc)
     end
 
+    -- Fetch player position once per tick for label distance calculations.
+    local _playerPos = nil
+    if player then pcall(function() _playerPos = player:GetWorldPos() end) end
+
     for id, ghost in pairs(KCD2MP.ghosts) do
         local _ok, _err = pcall(function()  -- catch any crash, keep tick alive
         local istate = ghost.istate
@@ -910,6 +947,23 @@ function KCD2MP_InterpTick()
                 else
                     KCD2MP_UpdateAnimation(id, ghost)
                 end
+
+                -- Update label cache for the render loop (runs at 8ms to avoid flicker).
+                -- When riding: sz = saddle height, head ~1.3m above saddle.
+                -- When on foot: sz = feet, head ~1.8m above feet.
+                local displayName = KCD2MP.ghostNames[id] or ("Player" .. tostring(id))
+                local labelZ = sz + (istate.isRiding and 1.1 or 1.8)
+                local labelSize = 0  -- 0 = hidden (too far)
+                if _playerPos then
+                    local dx = x - _playerPos.x
+                    local dy = y - _playerPos.y
+                    local dz = labelZ - _playerPos.z
+                    local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+                    if dist <= 60.0 then
+                        labelSize = math.max(0.3, math.min(2.0, 10.0 / math.max(dist, 1.0)))
+                    end
+                end
+                KCD2MP.labelCache[id] = {x=x, y=y, z=labelZ, size=labelSize, name=displayName}
             end
         end
         end)  -- end pcall for ghost update
@@ -1008,6 +1062,7 @@ function KCD2MP_RemoveGhost(id)
         pcall(function() System.RemoveEntity(ghost.entityId) end)
     end
     KCD2MP.ghosts[id] = nil
+    KCD2MP.labelCache[id] = nil
     System.LogAlways("[KCD2-MP] Removed ghost: " .. id)
     -- Reset riding anim probes: if they were cached while NPC was ForceMount'd they may be
     -- wrong (false). Re-probe on next riding ghost (free NPC → correct results).
@@ -1045,6 +1100,8 @@ end
 function KCD2MP_Stop()
     KCD2MP.running = false
     KCD2MP.interpRunning = false
+    KCD2MP.labelRunning = false
+    KCD2MP.labelCache = {}
     KCD2MP_RemoveAllGhosts()
     System.LogAlways("[KCD2-MP] Stopped")
 end

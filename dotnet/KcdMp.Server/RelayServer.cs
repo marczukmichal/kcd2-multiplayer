@@ -30,6 +30,8 @@ public class RelayServer(int port, bool echo = false)
                 lock (_lock)
                     _clients.Remove(session);
                 Console.WriteLine($"[-] {session.Name ?? $"id={session.Id}"} disconnected. Clients: {_clients.Count}");
+                if (session.IsReady)
+                    BroadcastDisconnect(session);
             });
         }
     }
@@ -65,6 +67,17 @@ public class RelayServer(int port, bool echo = false)
 
         foreach (var target in targets)
             target.EnqueueName(source.Id, source.Name);
+    }
+
+    /// <summary>Broadcasts a Disconnect (0x06) packet to all remaining clients so they can remove the ghost.</summary>
+    public void BroadcastDisconnect(ClientSession disconnected)
+    {
+        List<ClientSession> targets;
+        lock (_lock)
+            targets = [.. _clients.Where(c => c.IsReady)];
+
+        foreach (var target in targets)
+            target.EnqueueDisconnect(disconnected.Id);
     }
 
     /// <summary>Sends Name (0x03) packets of all currently ready clients to <paramref name="newClient"/>.</summary>

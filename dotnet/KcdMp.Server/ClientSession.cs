@@ -14,9 +14,12 @@ namespace KcdMp.Server;
 /// C→S  0x00  Handshake:  [nameLen:1][name:UTF-8]
 /// C→S  0x01  Position:   [x:4f][y:4f][z:4f][rotZ:4f][flags:1]  (17 bytes, LE IEEE-754)
 ///               flags bit 0: isRiding
+/// C→S  0x04  Ping:       [timestamp:8 LE int64]
 /// S→C  0xFF  Ack:        [assignedId:1]
 /// S→C  0x02  Ghost:      [ghostId:1][x:4f][y:4f][z:4f][rotZ:4f][flags:1]  (18 bytes)
 /// S→C  0x03  Name:       [ghostId:1][name:UTF-8...]
+/// S→C  0x05  Pong:       [timestamp:8 LE int64]  (echo of Ping)
+/// S→C  0x06  Disconnect: [ghostId:1]
 /// </summary>
 public class ClientSession
 {
@@ -76,6 +79,15 @@ public class ClientSession
                 int type = header[0];
                 int payloadLen = BinaryPrimitives.ReadUInt16LittleEndian(header.AsSpan(1));
 
+                if (type == 0x04 && payloadLen == 8)
+                {
+                    // Ping → echo back as Pong with same 8-byte timestamp
+                    var tsBytes = new byte[8];
+                    await ReadExactAsync(tsBytes);
+                    EnqueueRaw(BuildPacket(0x05, tsBytes));
+                    continue;
+                }
+
                 if (type != 0x01 || (payloadLen != 16 && payloadLen != 17))
                 {
                     // Skip unknown/malformed packet
@@ -123,6 +135,10 @@ public class ClientSession
         payload[17] = flags;
         EnqueueRaw(BuildPacket(0x02, payload));
     }
+
+    /// <summary>Thread-safe: enqueue a Disconnect packet (0x06) to be sent to this client.</summary>
+    public void EnqueueDisconnect(byte ghostId) =>
+        EnqueueRaw(BuildPacket(0x06, [ghostId]));
 
     /// <summary>Thread-safe: enqueue a Name packet (0x03) to be sent to this client.</summary>
     public void EnqueueName(byte ghostId, string name)

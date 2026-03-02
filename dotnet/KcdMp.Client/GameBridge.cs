@@ -40,24 +40,30 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
     private volatile float _cachedRotZ = 0f;
     private volatile bool  _cachedIsRiding = false;
 
-    public async Task RunAsync()
+    // Ping: maps sent timestamp (ticks) → Stopwatch timestamp at send time
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, long> _pingsSent = new();
+
+    public async Task RunAsync(CancellationToken ct = default)
     {
-        while (true)
+        while (!ct.IsCancellationRequested)
         {
-            await WaitForGameAsync();
+            await WaitForGameAsync(ct);
+            if (ct.IsCancellationRequested) break;
 
             try
             {
-                await ConnectAndRunAsync();
+                await ConnectAndRunAsync(ct);
             }
+            catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
                 Console.WriteLine($"[!] Unexpected error: {ex.Message}");
             }
 
+            if (ct.IsCancellationRequested) break;
             Console.WriteLine("Reconnecting in 3 s...");
             Console.WriteLine();
-            await Task.Delay(3000);
+            await Task.Delay(3000, ct).ContinueWith(_ => { });
         }
     }
 
@@ -65,10 +71,10 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
     // Phase 1 – wait for a save to be loaded
     // -------------------------------------------------------------------------
 
-    private async Task WaitForGameAsync()
+    private async Task WaitForGameAsync(CancellationToken ct = default)
     {
         Console.WriteLine("Waiting for game to load a save...");
-        while (true)
+        while (!ct.IsCancellationRequested)
         {
             try
             {
@@ -82,7 +88,7 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
             }
             catch { /* game not running yet */ }
 
-            await Task.Delay(3000);
+            await Task.Delay(3000, ct).ContinueWith(_ => { });
         }
     }
 
@@ -90,7 +96,7 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
     // Phase 2 – connected to relay server
     // -------------------------------------------------------------------------
 
-    private async Task ConnectAndRunAsync()
+    private async Task ConnectAndRunAsync(CancellationToken appCt = default)
     {
         using var tcp = new TcpClient();
 
@@ -130,11 +136,12 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
         try { await ExecLuaAsync("if KCD2MP_StartInterp then KCD2MP_StartInterp() end"); }
         catch { /* ignore if mod not loaded yet */ }
 
-        using var cts = new CancellationTokenSource();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(appCt);
 
         // Start background tasks
         var receiveTask  = ReceiveLoopAsync(stream, cts.Token);
         var rotStateTask = RotStateLoopAsync(cts.Token);
+        var pingTask     = PingLoopAsync(stream, cts.Token);
 
         // --- Position push loop ---
         try
@@ -177,12 +184,37 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
             cts.Cancel();
             try { await receiveTask;  } catch { }
             try { await rotStateTask; } catch { }
+            try { await pingTask;     } catch { }
+            Console.WriteLine("Removing all ghosts...");
+            try { await ExecLuaAsync("KCD2MP_RemoveAllGhosts()"); } catch { }
         }
     }
 
     // -------------------------------------------------------------------------
     // Background rotation + riding state loop (every RotStateIntervalMs)
     // -------------------------------------------------------------------------
+
+    private async Task PingLoopAsync(NetworkStream stream, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            try
+            {
+                await Task.Delay(2000, ct);
+                long ts = DateTime.UtcNow.Ticks;
+                var tsBytes = new byte[8];
+                BinaryPrimitives.WriteInt64LittleEndian(tsBytes, ts);
+                _pingsSent[ts] = System.Diagnostics.Stopwatch.GetTimestamp();
+                var packet = new byte[3 + 8];
+                packet[0] = 0x04;
+                BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(1), 8);
+                tsBytes.CopyTo(packet, 3);
+                await stream.WriteAsync(packet, ct);
+            }
+            catch (OperationCanceledException) { break; }
+            catch { break; }
+        }
+    }
 
     private async Task RotStateLoopAsync(CancellationToken ct)
     {
@@ -233,7 +265,18 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                 var payload    = new byte[payloadLen];
                 await ReadExactAsync(stream, payload, ct);
 
-                if (type == 0x02 && (payloadLen == 17 || payloadLen == 18))
+                if (type == 0x05 && payloadLen == 8)
+                {
+                    long ts = BinaryPrimitives.ReadInt64LittleEndian(payload);
+                    if (_pingsSent.TryRemove(ts, out long sentAt))
+                    {
+                        int ms = (int)((System.Diagnostics.Stopwatch.GetTimestamp() - sentAt)
+                                       * 1000L / System.Diagnostics.Stopwatch.Frequency);
+                        Console.WriteLine($"[ping] {ms} ms");
+                        try { await ExecLuaAsync($"KCD2MP_ShowPing({ms})"); } catch { }
+                    }
+                }
+                else if (type == 0x02 && (payloadLen == 17 || payloadLen == 18))
                 {
                     // Ghost packet v1 (17): [ghostId:1][x:4f][y:4f][z:4f][rotZ:4f]
                     // Ghost packet v2 (18): [ghostId:1][x:4f][y:4f][z:4f][rotZ:4f][flags:1]
@@ -251,6 +294,13 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                     byte ghostId = payload[0];
                     string gname = Encoding.UTF8.GetString(payload, 1, payloadLen - 1);
                     await SetGhostNameAsync(ghostId.ToString(), gname);
+                }
+                else if (type == 0x06 && payloadLen == 1)
+                {
+                    // Disconnect packet: [ghostId:1]
+                    byte ghostId = payload[0];
+                    Console.WriteLine($"[disconnect] ghost {ghostId} removed");
+                    try { await ExecLuaAsync($"KCD2MP_RemoveGhost(\"{ghostId}\")"); } catch { }
                 }
             }
         }
