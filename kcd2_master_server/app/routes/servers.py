@@ -9,6 +9,17 @@ def get_servers():
     servers = Server.query.all()
     return jsonify([s.to_dict() for s in servers])
 
+@servers_bp.route("/get_server/<string:ip_address>", methods=["GET"])
+def get_server(ip_address):
+    server = Server.query.filter_by(ip_address=ip_address).first()
+
+    if not server:
+        return jsonify({
+            "error": "Server not found"
+            }),404
+    
+    return jsonify(server.detailed_dict())
+
 @servers_bp.route("/register", methods=["POST"])
 def register_servers():
     data = request.get_json()
@@ -18,6 +29,8 @@ def register_servers():
             ip_address = data["ip_address"],
             port = data["port"],
             map_name = data["map_name"],
+            description = data["description"],
+            tag = data["tag"]
             )
 
     db.session.add(server)
