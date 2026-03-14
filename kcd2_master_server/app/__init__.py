@@ -20,6 +20,8 @@ def create_app():
     with app.app_context():
         from app import models
         db.create_all()
+        from app.models import seed_tags
+        seed_tags()
 
     return app
 
