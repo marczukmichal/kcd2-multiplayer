@@ -1,3 +1,0 @@
-﻿<Project>
-  <Import Project="..\build\KCDMP_launcher.props" />
-</Project>

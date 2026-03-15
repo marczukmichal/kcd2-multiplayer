@@ -1,3 +1,8 @@
 mods - Shortcut.lnk
 memory.md
 .claude
+bin/
+obj/
+out/
+Debug/
+Release/
