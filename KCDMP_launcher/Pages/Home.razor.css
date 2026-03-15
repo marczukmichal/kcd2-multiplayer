@@ -1,0 +1,104 @@
+﻿/* Wrapper centrujący */
+::deep .content-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 40px; /* Miejsce na stopkę */
+    z-index: 1;
+    pointer-events: none; /* Przepuszczamy kliki pod spód */
+}
+
+.game-title {
+    font-family: 'Cinzel', serif;
+    color: #d4af37;
+    font-size: 48px;
+    text-transform: uppercase;
+    text-shadow: 0 4px 10px rgba(0,0,0,0.9);
+    margin-bottom: 20px;
+    letter-spacing: 5px;
+    text-align: center;
+    width: 100%;
+    pointer-events: auto;
+}
+
+/* Główne okno */
+.main-window {
+    width: 90vw;
+    max-width: 1600px;
+    height: 85vh; /* Z Twojego pliku */
+    display: flex;
+    flex-direction: column;
+    filter: drop-shadow(0 0 50px rgba(0,0,0,1.0));
+    background: transparent;
+    padding: 0;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: auto;
+}
+
+    .main-window.shifted {
+        transform: translateX(320px);
+    }
+
+/* RAMKI (Ścieżki zmienione na 'img/...' bez kropek) */
+/* TOP FRAME */
+.frame-top {
+    height: 48px;
+    /* Używamy slice, aby zachować ostre końce (złote okucia) i rozciągnąć środek */
+    border-style: solid;
+    border-width: 48px 40px 0 40px;
+    border-image-source: url('..img/ui/modal_dialog_item_top.png');
+    /* Zakładając, że ozdobne końcówki mają ok 40px szerokości */
+    border-image-slice: 48 40 0 40 fill;
+    border-image-repeat: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+    margin-bottom: -20px; /* Lekkie nachodzenie na tło listy */
+}
+
+    .frame-top h2 {
+        font-family: 'Cinzel', serif;
+        color: #f0e6d2;
+        font-size: 26px;
+        margin: 0;
+        text-transform: uppercase;
+        letter-spacing: 3px;
+        text-shadow: 0 2px 5px rgba(0,0,0,0.9);
+        position: absolute;
+        top: 5px; /* Ręczne dociągnięcie napisu do środka belki */
+    }
+
+/* MIDDLE FRAME */
+.frame-middle {
+    flex-grow: 1;
+    background-image: url('img/ui/modal_dialog_item_middle.png');
+    background-repeat: repeat-y;
+    background-size: 100% auto;
+    background-position: center;
+    /* Usuwamy padding, który mógł wypychać zawartość poza scroll */
+    padding: 20px 55px;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    z-index: 1;
+}
+
+/* BOTTOM FRAME */
+.frame-bottom {
+    height: 35px;
+    border-style: solid;
+    border-width: 0 40px 35px 40px;
+    border-image-source: url('img/ui/modal_dialog_item_bottom.png');
+    border-image-slice: 0 40 35 40 fill;
+    border-image-repeat: stretch;
+    z-index: 2;
+    margin-top: -15px; /* Nakładka na środek, żeby nie było widać szwów */
+}

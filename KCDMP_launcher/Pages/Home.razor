@@ -1,0 +1,70 @@
+﻿@page "/"
+@using KCDMP_launcher.Components
+@using KCDMP_launcher.Components.Modals
+@using KCDMP_launcher.Models
+@using Microsoft.JSInterop
+@using System.Diagnostics
+@using System.Text.Json
+
+<FilterSidebar  IsOpen="@isFilterOpen"
+                @bind-FilterName="filterName"
+                @bind-FilterMap="filterMap"
+                @bind-FilterMinPlayers="filterMinPlayers"
+                @bind-FilterMaxPlayers="filterMaxPlayers"
+                @bind-FilterMinPing="filterMinPing"
+                @bind-FilterMaxPing="filterMaxPing"
+                @bind-FilterShowFavorites="filterShowFavorites"
+                @bind-FilterHideUnreachable="filterHideUnreachable"
+                OnResetFilters="@ResetFilters"
+                AvailableMaps="@availableMaps" 
+/>
+
+<div class="content-wrapper">
+
+    <div class="game-title">
+        Kingdom Come: Multiplayer
+    </div>
+
+    <div class="main-window @(isFilterOpen ? "shifted" : "")">
+
+        <ServerList @ref="serverListComponent"
+                    Servers="@filteredAndSortedServers"
+                    Favorites="@favoriteIps"
+                    IsLoading="@isLoading"
+                    CurrentSortColumn="@currentSortColumn"
+                    IsAscending="@isAscending"
+                    OnSort="@SortTable"
+                    OnLaunch="@LaunchGame"
+                    OnToggleFavorite="@ToggleFavorite"
+                    OnAddClick="@OpenAddModal"
+                    OnEditClick="@OpenEditModal"
+                    OnRemoveClick="@RemoveCustomServer"
+                    OnError="@DisplayError"
+        />
+
+    </div>
+
+</div>
+
+<StatusBar  IsFilterActive="@filterShowFavorites"
+            OnToggleFilters="@ToggleFiltersJS"
+            OnToggleSettings="@ToggleSettingsJS"
+            OnRefresh="@RefreshApp"
+            OnExit="@ExitApp"
+/>
+
+<ExitModal  IsVisible="@showExitConfirm" 
+            OnConfirm="@(() => Environment.Exit(0))" 
+            OnClose="@(() => showExitConfirm = false)" />
+
+<SettingsModal  IsVisible="@showSettings" 
+                Settings="@settings" 
+                OnSave="@SaveSettings" 
+                OnClose="@(() => showSettings = false)" />
+
+<AddServerModal IsVisible="@showAddServer"
+                ServerToEdit="@serverToEdit"
+                OnAdd="@AddCustomServer"
+                OnEdit="@HandleServerUpdate"
+                OnClose="@(() => showAddServer = false)" />
+<ErrorModal />

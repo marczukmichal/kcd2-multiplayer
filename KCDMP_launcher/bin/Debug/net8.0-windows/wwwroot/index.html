@@ -1,0 +1,52 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kingdom Come: Multiplayer</title>
+    <base href="/" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Libre+Baskerville:wght@400;700&display=swap" rel="stylesheet">
+
+    <link href="css/site.css" rel="stylesheet" />
+    <link href="css/modals.css" rel="stylesheet" />
+    <link href="KCDMP_launcher.styles.css" rel="stylesheet" />
+</head>
+<body>
+    <div id="app">Loading...</div>
+
+    <script src="_framework/blazor.webview.js"></script>
+    <script>
+        window.registerGlobalKeys = (dotNetHelper) => {
+            window.addEventListener('keydown', (e) => {
+                console.log("Key pressed:", e.key);
+
+                // ESC -> Exit
+                if (e.key === "Escape") {
+                    dotNetHelper.invokeMethodAsync('ExitApp');
+                }
+
+                // TAB -> Toggle Filters
+                if (e.key === "Tab") {
+                    e.preventDefault();
+                    dotNetHelper.invokeMethodAsync('ToggleFiltersJS');
+                }
+
+                // F5 -> Refresh
+                if (e.key === "F5") {
+                    e.preventDefault();
+                    dotNetHelper.invokeMethodAsync('RefreshApp');
+                }
+
+                // F10 -> Settings
+                if (e.key === "F10") {
+                    e.preventDefault();
+                    dotNetHelper.invokeMethodAsync('ToggleSettingsJS');
+                }
+            });
+        };
+    </script>
+</body>
+</html>

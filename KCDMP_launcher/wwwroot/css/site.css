@@ -1,0 +1,131 @@
+﻿* {
+    box-sizing: border-box;
+}
+
+body {
+    background-image: linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.7)), url('../img/kcd2_bg.jpg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    margin: 0;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    font-family: 'Libre Baskerville', serif;
+    user-select: none;
+    color: #eee;
+}
+
+
+.game-title {
+    font-family: 'Cinzel', serif;
+    color: #d4af37;
+    font-size: 48px;
+    text-transform: uppercase;
+    text-shadow: 0 4px 10px rgba(0,0,0,0.9);
+    margin-bottom: 20px;
+    letter-spacing: 5px;
+    text-align: center;
+    width: 100%;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.main-window {
+    width: 90vw;
+    max-width: 1600px;
+    height: 85vh;
+    display: flex;
+    flex-direction: column;
+    filter: drop-shadow(0 0 50px rgba(0,0,0,1.0));
+    background: transparent;
+    padding: 0;
+    transition: transform 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+    .main-window.shifted,
+    .game-title.shifted {
+        transform: translateX(175px);
+    }
+
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #121a24;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #d4af37;
+    border-radius: 4px;
+}
+
+.kcd-label {
+    display: block;
+    font-size: 12px;
+    color: #aaa;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.kcd-input-group {
+    margin-bottom: 20px;
+}
+
+.kcd-input {
+    width: 100%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid #4a3b22;
+    color: #d4af37;
+    padding: 8px;
+    font-family: 'Libre Baskerville', serif;
+    font-size: 14px;
+    outline: none;
+    transition: border 0.2s;
+}
+
+    .kcd-input:focus {
+        border-color: #d4af37;
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+.kcd-btn {
+    background: rgba(0,0,0,0.4);
+    border: 1px solid #4a3b22;
+    color: #d4af37;
+    padding: 8px 25px;
+    font-family: 'Cinzel', serif;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-transform: uppercase;
+}
+
+    .kcd-btn:hover {
+        border-color: #d4af37;
+        background: rgba(212, 175, 55, 0.1);
+    }
+
+    .kcd-btn.primary {
+        border-color: #d4af37;
+        font-weight: bold;
+    }
+
+.content-wrapper {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-bottom: 40px;
+    z-index: 1;
+    pointer-events: none;
+}
+
+    .content-wrapper > * {
+        pointer-events: auto;
+    }

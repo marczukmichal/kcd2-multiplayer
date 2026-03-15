@@ -1,0 +1,126 @@
+﻿.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(5px);
+    z-index: 6000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: overlayFadeIn;
+    animation-duration: 0.2s;
+}
+    .modal-overlay.closing {
+        animation: overlayFadeOut ease-out forwards;
+        animation-duration: 0.2s;
+    }
+        .modal-overlay.closing .modal-box {
+            animation: boxFadeOut ease-out forwards;
+            animation-duration: 0.2s;
+        }
+
+.modal-box {
+    display: flex;
+    flex-direction: column;
+    filter: drop-shadow(0 0 30px rgba(0,0,0,1.0));
+    position: relative;
+    width: 650px;
+    animation: boxFadeIn;
+    animation-duration: 0.2s;
+}
+
+.modal-frame-top {
+    height: 48px;
+    background-image: url('../img/ui/modal_dialog_item_top.png');
+    background-position: top center;
+}
+
+.modal-content {
+    background-image: url('../img/ui/modal_dialog_item_middle.png');
+    background-position: top center;
+    background-size: 100% auto;
+    background-repeat: repeat-y;
+    padding: 30px 40px;
+    color: #eee;
+    text-align: left;
+}
+    .modal-content p {
+        margin: 15px;
+        line-height: 1.5;
+        text-align: center;
+    }
+
+.modal-frame-bottom {
+    width: 100%;
+    height: 35px;
+    background-image: url('../img/ui/modal_dialog_item_bottom.png');
+    background-position: bottom center;
+}
+
+.modal-frame-bg {
+    background-size: 100% auto;
+    background-repeat: no-repeat;
+}
+
+.modal-title {
+    font-family: 'Cinzel', serif;
+    font-size: 24px;
+    margin-bottom: 20px;
+    text-align: center;
+    text-shadow: 0 2px 2px #000;
+    color: #d4af37;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+    margin-top: 20px;
+}
+
+@keyframes boxFadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes boxFadeOut {
+    from {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+}
+
+@keyframes overlayFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes overlayFadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}

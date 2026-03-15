@@ -1,0 +1,78 @@
+﻿@inherits ModalBase
+@using KCDMP_launcher.Services
+@using System.Threading
+@implements IDisposable
+
+@if (IsVisible)
+{
+    <div class="modal-overlay @(isClosing ? "closing" : "")">
+        <div class="modal-box error-box" @onclick:stopPropagation="true">
+
+            <div class="modal-frame-top modal-frame-bg"></div>
+
+            <div class="modal-content">
+                <div class="modal-title">ERROR</div>
+
+                <p id="perror">@errorMessage</p>
+
+                <div class="modal-actions">
+                    <button class="kcd-btn primary" @onclick="OnCopyToClipboard">@copyText</button>
+                    <button class="kcd-btn" @onclick="CloseModalAsync">CLOSE</button>
+                </div>
+            </div>
+
+            <div class="modal-frame-bottom modal-frame-bg"></div>
+        </div>
+    </div>
+}
+
+@code {
+    private string errorMessage = "";
+    private string copyText = "COPY";
+
+    protected override void OnInitialized()
+    {
+        UiService.OnShowError += Show;
+    }
+
+    private async void Show(string message)
+    {
+        await InvokeAsync(() =>
+        {
+            errorMessage = message;
+            copyText = "COPY";
+            IsVisible = true;
+            isClosing = false;
+            StateHasChanged();
+        });
+    }
+
+    private void OnCopyToClipboard()
+    {
+        try
+        {
+            if (!string.IsNullOrEmpty(errorMessage))
+            {
+                var thread = new Thread(() =>
+                {
+                    System.Windows.Forms.Clipboard.SetText(errorMessage);
+                });
+                thread.SetApartmentState(ApartmentState.STA);
+                thread.Start();
+                thread.Join();
+
+                copyText = "COPIED!";
+                StateHasChanged();
+            }
+        }
+        catch (Exception)
+        {
+            copyText = "ERROR COPYING";
+        }
+    }
+
+	public void Dispose()
+	{
+		UiService.OnShowError -= Show;
+	}
+}

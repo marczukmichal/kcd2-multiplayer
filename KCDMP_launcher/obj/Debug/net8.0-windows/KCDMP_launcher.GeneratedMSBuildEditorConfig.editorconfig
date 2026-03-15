@@ -1,0 +1,68 @@
+is_global = true
+build_property.ApplicationManifest = 
+build_property.StartupObject = 
+build_property.ApplicationDefaultFont = 
+build_property.ApplicationHighDpiMode = 
+build_property.ApplicationUseCompatibleTextRendering = 
+build_property.ApplicationVisualStyles = 
+build_property.TargetFramework = net8.0-windows
+build_property.TargetPlatformMinVersion = 7.0
+build_property.UsingMicrosoftNETSdkWeb = 
+build_property.ProjectTypeGuids = 
+build_property.InvariantGlobalization = 
+build_property.PlatformNeutralAssembly = 
+build_property.EnforceExtendedAnalyzerRules = 
+build_property._SupportedPlatformList = Linux,macOS,Windows
+build_property.RootNamespace = KCDMP_launcher
+build_property.RootNamespace = KCDMP_launcher
+build_property.ProjectDir = D:\aaa\KCD\Workspace\KCDMP_launcher\
+build_property.EnableComHosting = 
+build_property.EnableGeneratedComInterfaceComImportInterop = 
+build_property.CsWinRTUseWindowsUIXamlProjections = false
+build_property.RazorLangVersion = 8.0
+build_property.SupportLocalizedComponentNames = 
+build_property.GenerateRazorMetadataSourceChecksumAttributes = 
+build_property.MSBuildProjectDirectory = D:\aaa\KCD\Workspace\KCDMP_launcher
+build_property._RazorSourceGeneratorDebug = 
+build_property.EffectiveAnalysisLevelStyle = 8.0
+build_property.EnableCodeStyleSeverity = 
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/App.razor]
+build_metadata.AdditionalFiles.TargetPath = QXBwLnJhem9y
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/_Imports.razor]
+build_metadata.AdditionalFiles.TargetPath = X0ltcG9ydHMucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = 
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Components/FilterSidebar.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xGaWx0ZXJTaWRlYmFyLnJhem9y
+build_metadata.AdditionalFiles.CssScope = b-q5dtr365ud
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Components/Modals/AddServerModal.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xNb2RhbHNcQWRkU2VydmVyTW9kYWwucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = b-66yh6e764u
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Components/Modals/ErrorModal.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xNb2RhbHNcRXJyb3JNb2RhbC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = b-3divckity4
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Components/Modals/ExitModal.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xNb2RhbHNcRXhpdE1vZGFsLnJhem9y
+build_metadata.AdditionalFiles.CssScope = b-ops0ugg857
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Components/Modals/SettingsModal.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xNb2RhbHNcU2V0dGluZ3NNb2RhbC5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = b-laioe3ru0e
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Components/ServerList.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTZXJ2ZXJMaXN0LnJhem9y
+build_metadata.AdditionalFiles.CssScope = b-6eq99upc1x
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Components/StatusBar.razor]
+build_metadata.AdditionalFiles.TargetPath = Q29tcG9uZW50c1xTdGF0dXNCYXIucmF6b3I=
+build_metadata.AdditionalFiles.CssScope = b-qx6g4l34pr
+
+[D:/aaa/KCD/Workspace/KCDMP_launcher/Pages/Home.razor]
+build_metadata.AdditionalFiles.TargetPath = UGFnZXNcSG9tZS5yYXpvcg==
+build_metadata.AdditionalFiles.CssScope = b-3kr5827tke

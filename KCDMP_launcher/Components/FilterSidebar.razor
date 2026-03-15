@@ -1,0 +1,115 @@
+<div class="filter-panel @(IsOpen ? "open" : "")">
+
+    <div style="margin-bottom: 20px; text-align: center; color: #d4af37; font-family: 'Cinzel'; border-bottom: 1px solid #4a3b22; padding-bottom: 10px;">
+        FILTERS
+    </div>
+
+    <div class="kcd-input-group">
+        <label class="kcd-label">Server Name</label>
+        <input class="kcd-input"
+        value="@FilterName"
+        @oninput="(e) => FilterNameChanged.InvokeAsync(e.Value?.ToString())"
+        placeholder="Search..." />
+    </div>
+
+    <div class="kcd-input-group">
+        <label class="kcd-label">Address IP</label>
+        <input type="text" class="kcd-input" placeholder="127.0.0.1" />
+    </div>
+
+    <div class="kcd-input-group">
+        <label class="kcd-label">Map</label>
+        <select class="kcd-input" style="cursor: pointer;" value="@FilterMap" @onchange="(e) => FilterMapChanged.InvokeAsync(e.Value?.ToString())">
+            <option value="">All Maps</option>
+            @foreach (var map in AvailableMaps)
+            {
+                <option value="@map">@map</option>
+            }
+        </select>
+    </div>
+
+
+
+    <div class="kcd-input-group">
+        <label class="kcd-label">Players Count</label>
+        <div class="kcd-range-row">
+            <input type="number" class="kcd-range-input" value="@FilterMinPlayers" @onchange="(e) => UpdateInt(e.Value, FilterMinPlayersChanged)" placeholder="Min" />
+            <span>-</span>
+            <input type="number" class="kcd-range-input" value="@FilterMaxPlayers" @onchange="(e) => UpdateInt(e.Value, FilterMaxPlayersChanged)" placeholder="Max" />
+        </div>
+    </div>
+
+    <div class="kcd-input-group">
+        <label class="kcd-label">Ping (ms)</label>
+        <div class="kcd-range-row">
+            <input type="number" class="kcd-range-input" value="@FilterMinPing" @onchange="(e) => UpdateInt(e.Value, FilterMinPingChanged)" placeholder="0" />
+            <span>-</span>
+            <input type="number" class="kcd-range-input" value="@FilterMaxPing" @onchange="(e) => UpdateInt(e.Value, FilterMaxPingChanged)" placeholder="Max" />
+        </div>
+    </div>
+
+    <div class="kcd-checkbox-wrapper" @onclick="ToggleFavorites" style="cursor: pointer; position: relative; z-index: 10; margin-top: 20px;">
+        <div class="kcd-checkbox @(FilterShowFavorites ? "checked" : "")"></div>
+        <span style="font-size: 14px; color: #d4af37; user-select: none;">Favorites Only</span>
+    </div>
+
+    <div class="kcd-checkbox-wrapper" @onclick="ToggleHideUnreachable" style="cursor: pointer; position: relative; z-index: 10; margin-top: 10px;">
+        <div class="kcd-checkbox @(FilterHideUnreachable ? "checked" : "")"></div>
+        <span style="font-size: 14px; color: #d4af37; user-select: none;">Hide Unreachable</span>
+    </div>
+
+    <div style="margin-top: auto; position: relative; z-index: 10;">
+        <span class="kcd-btn" @onclick="OnResetFilters" style="padding: 10px; width: 100%; text-align: center; display: block;">
+            RESET FILTERS
+        </span>
+    </div>
+</div>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public List<string> AvailableMaps { get; set; } = new();
+
+    [Parameter] public string FilterName { get; set; } = "";
+    [Parameter] public EventCallback<string> FilterNameChanged { get; set; }
+
+    [Parameter] public string FilterMap { get; set; } = "";
+    [Parameter] public EventCallback<string> FilterMapChanged { get; set; }
+
+    [Parameter] public int? FilterMinPlayers { get; set; }
+    [Parameter] public EventCallback<int?> FilterMinPlayersChanged { get; set; }
+
+    [Parameter] public int? FilterMaxPlayers { get; set; }
+    [Parameter] public EventCallback<int?> FilterMaxPlayersChanged { get; set; }
+
+    [Parameter] public int? FilterMinPing { get; set; }
+    [Parameter] public EventCallback<int?> FilterMinPingChanged { get; set; }
+
+    [Parameter] public int? FilterMaxPing { get; set; }
+    [Parameter] public EventCallback<int?> FilterMaxPingChanged { get; set; }
+
+    [Parameter] public bool FilterShowFavorites { get; set; }
+    [Parameter] public EventCallback<bool> FilterShowFavoritesChanged { get; set; }
+
+    [Parameter] public bool FilterHideUnreachable { get; set; }
+    [Parameter] public EventCallback<bool> FilterHideUnreachableChanged { get; set; }
+
+    [Parameter] public EventCallback OnResetFilters { get; set; }
+
+    private async Task ToggleFavorites()
+    {
+        await FilterShowFavoritesChanged.InvokeAsync(!FilterShowFavorites);
+    }
+
+    private async Task ToggleHideUnreachable()
+    {
+        await FilterHideUnreachableChanged.InvokeAsync(!FilterHideUnreachable);
+    }
+
+    private async Task UpdateInt(object? value, EventCallback<int?> callback)
+    {
+        if (int.TryParse(value?.ToString(), out int result))
+            await callback.InvokeAsync(result);
+        else
+            await callback.InvokeAsync(null);
+    }
+}

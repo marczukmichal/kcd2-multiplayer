@@ -1,0 +1,91 @@
+.filter-panel {
+    position: fixed;
+    top: 0;
+    left: -350px;
+    width: 350px;
+    height: 90vh;
+    z-index: 5000;
+
+    background-image: url('img/ui/item_info.png');
+    background-size: 100% 100%;
+    background-repeat: no-repeat;
+    transition: left 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+    padding: 80px 40px 40px 30px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    filter: drop-shadow(5px 0 15px rgba(0,0,0,0.8));
+    color: #eee;
+}
+
+    .filter-panel.open {
+        left: 0;
+    }
+    .filter-panel:nth-child(2) {
+        margin-top: 100px;
+    }
+
+.kcd-input-group {
+    margin-bottom: 20px;
+}
+
+    .kcd-input-group:first-child {
+        margin-top: 50px;
+    }
+
+.kcd-range-row {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.kcd-range-input {
+    width: 50%;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid #4a3b22;
+    color: #d4af37;
+    padding: 8px;
+    font-family: 'Libre Baskerville', serif;
+    font-size: 13px;
+    box-sizing: border-box;
+    outline: none;
+    transition: border 0.2s;
+    text-align: center;
+}
+
+    .kcd-range-input:focus {
+        border-color: #d4af37;
+        background: rgba(0, 0, 0, 0.5);
+    }
+
+.kcd-checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    margin-top: 10px;
+}
+
+.kcd-checkbox {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #d4af37;
+    margin-right: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.3);
+}
+
+    .kcd-checkbox.checked::after {
+        content: 'X';
+        color: #d4af37;
+        font-weight: bold;
+        font-size: 14px;
+    }
+
+/* Ukrycie strza³ek w input number */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}

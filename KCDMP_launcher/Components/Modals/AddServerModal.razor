@@ -1,0 +1,116 @@
+﻿@inherits ModalBase
+@using KCDMP_launcher.Models
+
+@if (IsVisible)
+{
+    <div class="modal-overlay @(isClosing ? "closing" : "")">
+        <div class="modal-box" @onclick:stopPropagation="true">
+            <div class="modal-frame-top modal-frame-bg"></div>
+            <div class="modal-content">
+
+                <div class="modal-title">@(ServerToEdit != null ? "EDIT SERVER" : "ADD CUSTOM SERVER")</div>
+
+                <div class="kcd-input-group">
+                    <label class="kcd-label">Server Name (Optional)</label>
+                    <input class="kcd-input" @bind="NewServer.Name" placeholder="My Awesome Server" />
+                </div>
+                <div class="kcd-input-group">
+                    <label class="kcd-label">Map Name</label>
+                    <input class="kcd-input" @bind="NewServer.MapName" placeholder="My Awesome Map" />
+                </div>
+                <div style="display: flex; gap: 15px;">
+                    <div class="kcd-input-group" style="flex-grow: 2;">
+                        <label class="kcd-label">IP Address</label>
+                        <input class="kcd-input" @bind="NewServer.Ip" placeholder="127.0.0.1" />
+                    </div>
+                    <div class="kcd-input-group" style="flex-grow: 1;">
+                        <label class="kcd-label">Port</label>
+                        <input type="number" class="kcd-input" @bind="NewServer.Port" placeholder="27015" />
+                    </div>
+                </div>
+
+                <div class="modal-actions">
+                    @if (ServerToEdit != null)
+                    {
+                        <button class="kcd-btn primary" @onclick="HandleEdit">SAVE CHANGES</button>
+                    }
+                    else
+                    {
+                        <button class="kcd-btn primary" @onclick="HandleAdd">ADD SERVER</button>
+                    }
+                    <button class="kcd-btn" @onclick="CloseModalAsync">CANCEL</button>
+                </div>
+
+            </div>
+            <div class="modal-frame-bottom modal-frame-bg"></div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public EventCallback<ServerInfo> OnAdd { get; set; }
+    [Parameter] public EventCallback<ServerInfo> OnEdit { get; set; }
+    [Parameter] public ServerInfo? ServerToEdit { get; set; }
+
+    private ServerInfo NewServer = new ServerInfo { Port = 27015 };
+
+    protected override void OnParametersSet()
+    {
+        if (ServerToEdit != null)
+        {
+            NewServer = new ServerInfo
+                {
+                    Name = ServerToEdit.Name,
+                    Ip = ServerToEdit.Ip,
+                    Port = ServerToEdit.Port,
+                    MapName = ServerToEdit.MapName,
+                    Players = ServerToEdit.Players,
+                    MaxPlayers = ServerToEdit.MaxPlayers,
+                    Ping = ServerToEdit.Ping
+                };
+        }
+        else
+        {
+            if (!IsVisible)
+            {
+                NewServer = new ServerInfo { Port = 27015 };
+            }
+        }
+    }
+
+    private async Task HandleAdd()
+    {
+        if (!ValidateInput()) return;
+
+        if (string.IsNullOrWhiteSpace(NewServer.Name)) NewServer.Name = NewServer.Ip;
+        if (string.IsNullOrWhiteSpace(NewServer.MapName)) NewServer.MapName = "Unknown[KCDMP]";
+        NewServer.MapName = NewServer.MapName.Replace(" ", "");
+
+        await OnAdd.InvokeAsync(NewServer);
+
+        NewServer = new ServerInfo { Port = 27015 };
+        await CloseModalAsync();
+    }
+
+    private async Task HandleEdit()
+    {
+        if (ServerToEdit == null) return;
+        if (!ValidateInput()) return;
+
+        ServerToEdit.Name = string.IsNullOrWhiteSpace(NewServer.Name) ? NewServer.Ip : NewServer.Name;
+        ServerToEdit.MapName = string.IsNullOrWhiteSpace(NewServer.MapName) ? "Unknown[KCDMP]" : NewServer.MapName.Replace(" ", "");
+        ServerToEdit.Ip = NewServer.Ip;
+        ServerToEdit.Port = NewServer.Port;
+
+        await OnEdit.InvokeAsync(ServerToEdit);
+        await CloseModalAsync();
+    }
+
+    private bool ValidateInput()
+    {
+        if (string.IsNullOrWhiteSpace(NewServer.Ip)) return false;
+        if (!NetService.ValidateIpAddr(NewServer.Ip)) return false;
+        if (!NetService.ValidatePort(NewServer.Port)) return false;
+        return true;
+    }
+}

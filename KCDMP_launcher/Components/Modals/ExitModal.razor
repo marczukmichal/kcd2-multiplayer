@@ -1,0 +1,26 @@
+@inherits ModalBase
+
+@if (IsVisible)
+{
+    <div class="modal-overlay @(isClosing ? "closing" : "" )">
+        <div class="modal-box" @onclick:stopPropagation="true">
+
+            <div class="modal-frame-top modal-frame-bg"></div>
+
+            <div class="modal-content">
+                <div class="modal-title">EXIT GAME?</div>
+                <p>Are you sure you want to quit the launcher?</p>
+
+                <div class="modal-actions">
+                    <button class="kcd-btn primary" @onclick="OnConfirm">QUIT</button>
+                    <button class="kcd-btn" @onclick="CloseModalAsync">CANCEL</button>
+                </div>
+            </div>
+            <div class="modal-frame-bottom modal-frame-bg"></div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public EventCallback OnConfirm { get; set; }
+}

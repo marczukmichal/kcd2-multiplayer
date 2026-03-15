@@ -1,0 +1,12 @@
+﻿.modal-title {
+    color: #ff5555;
+}
+
+.error-box {
+    z-index: 9999;
+}
+
+#perror {
+    color: orangered;
+    text-align: center;
+}

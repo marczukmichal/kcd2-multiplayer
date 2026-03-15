@@ -1,0 +1,141 @@
+﻿@using KCDMP_launcher.Models
+
+<div class="frame-middle">
+    @if (IsLoading)
+    {
+        <div style="display: flex; justify-content: center; align-items: center; height: 100%; color: #d4af37; font-family: 'Cinzel', serif; font-size: 24px;">
+            Refreshing List...
+        </div>
+    }
+    else
+    {
+        <div class="table-container">
+            <table>
+                <colgroup>
+                    <col style="width: 5%;" />
+                    <col style="width: 40%;" />
+                    <col style="width: 25%;" />
+                    <col style="width: 20%;" />
+                    <col style="width: 10%;" />
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>★</th>
+                        <th @onclick='() => OnSort.InvokeAsync("Name")'>Server @RenderSortIcon("Name")</th>
+                        <th @onclick='() => OnSort.InvokeAsync("Map")'>Map @RenderSortIcon("Map")</th>
+                        <th @onclick='() => OnSort.InvokeAsync("Players")'>Players @RenderSortIcon("Players")</th>
+                        <th @onclick='() => OnSort.InvokeAsync("Ping")'>Ping @RenderSortIcon("Ping")</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var server in Servers)
+                    {
+                        <tr class="@(selectedServer == server ? "selected" : "")"
+                        @onclick="() => SelectServer(server)"
+                        @ondblclick="() => OnLaunch.InvokeAsync(server)">
+
+                            <td style="text-align: center;" @onclick:stopPropagation="true">
+                                <span class="fav-star @(Favorites.Contains(server.Ip) ? "active" : "")"
+                                @onclick="() => OnToggleFavorite.InvokeAsync(server)">
+                                    ★
+                                </span>
+                            </td>
+                            <td>@server.Name</td>
+                            <td>@server.MapName</td>
+                            <td>@server.Players / @server.MaxPlayers</td>
+                            <td>
+                                <img src="img/ui/@GetPingImage(server.Ping)" class="ping-img" title="@server.Ping ms" />
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+<div class="frame-bottom action-bar">
+    <div class="action-buttons">
+        <button class="frame-btn" @onclick="OnAddClick">
+            ADD SERVER
+        </button>
+
+        <div class="frame-sep"></div>
+
+        <button class="frame-btn"
+                disabled="@(selectedServer == null)"
+                @onclick="() => OnEditClick.InvokeAsync(selectedServer)">
+            EDIT SERVER
+        </button>
+
+        <div class="frame-sep"></div>
+
+        <button class="frame-btn danger"
+                disabled="@(selectedServer == null)"
+                @onclick="() => OnRemoveClick.InvokeAsync(selectedServer)">
+            REMOVE SERVER
+        </button>
+
+        <div class="frame-sep"></div>
+
+        <button class="frame-btn primary"
+                disabled="@(selectedServer == null)"
+                @onclick="() => OnLaunch.InvokeAsync(selectedServer)">
+            JOIN SERVER
+        </button>
+    </div>
+</div>
+
+@code {
+
+    [Parameter] public IEnumerable<ServerInfo> Servers { get; set; } = Enumerable.Empty<ServerInfo>();
+    [Parameter] public HashSet<string> Favorites { get; set; } = new();
+    [Parameter] public bool IsLoading { get; set; }
+
+    [Parameter] public string CurrentSortColumn { get; set; } = "Players";
+    [Parameter] public bool IsAscending { get; set; }
+
+    [Parameter] public EventCallback<string> OnSort { get; set; }
+    [Parameter] public EventCallback<ServerInfo> OnLaunch { get; set; }
+    [Parameter] public EventCallback<ServerInfo> OnToggleFavorite { get; set; }
+
+    [Parameter] public EventCallback OnAddClick { get; set; }
+	[Parameter] public EventCallback<ServerInfo> OnEditClick { get; set; }
+	[Parameter] public EventCallback<ServerInfo> OnRemoveClick { get; set; }
+
+    [Parameter] public EventCallback OnError { get; set; }
+
+    private ServerInfo? selectedServer;
+
+    private void SelectServer(ServerInfo server)
+    {
+        selectedServer = server;
+    }
+
+    private RenderFragment RenderSortIcon(string columnName)
+    {
+        if (CurrentSortColumn != columnName) return null;
+        return builder => 
+        { 
+            builder.OpenElement(0, "div"); 
+            builder.AddAttribute(1, "class", 
+            IsAscending ? "sort-icon sort-asc" : "sort-icon sort-desc"); builder.CloseElement(); //to do icon
+        };
+    }
+    private string GetPingImage(int ping) 
+    {
+
+        if (ping < 0) return "reputation_verybad.png";
+        if (ping < 50) return "reputation_verygood.png"; 
+        if (ping < 100) return "reputation_good.png"; 
+        if (ping < 150) return "reputation_neutral.png";
+		if (ping < 250) return "reputation_bad.png";
+        return "reputation_verybad.png"; }
+
+
+    public void ClearSelection()
+    {
+		selectedServer = null;
+		StateHasChanged();
+	}
+}
