@@ -15,11 +15,13 @@ namespace KcdMp.Server;
 /// C→S  0x01  Position:   [x:4f][y:4f][z:4f][rotZ:4f][flags:1]  (17 bytes, LE IEEE-754)
 ///               flags bit 0: isRiding
 /// C→S  0x04  Ping:       [timestamp:8 LE int64]
+/// C→S  0x07  Equipment:  [clothingLen:1][clothing:UTF-8][weaponLen:1][weapon:UTF-8]
 /// S→C  0xFF  Ack:        [assignedId:1]
 /// S→C  0x02  Ghost:      [ghostId:1][x:4f][y:4f][z:4f][rotZ:4f][flags:1]  (18 bytes)
 /// S→C  0x03  Name:       [ghostId:1][name:UTF-8...]
 /// S→C  0x05  Pong:       [timestamp:8 LE int64]  (echo of Ping)
 /// S→C  0x06  Disconnect: [ghostId:1]
+/// S→C  0x07  Equipment:  [ghostId:1][clothingLen:1][clothing:UTF-8][weaponLen:1][weapon:UTF-8]
 /// </summary>
 public class ClientSession
 {
@@ -88,6 +90,23 @@ public class ClientSession
                     continue;
                 }
 
+                if (type == 0x07 && payloadLen >= 2)
+                {
+                    // Equipment: [clothingLen:1][clothing:UTF-8][weaponLen:1][weapon:UTF-8]
+                    var eqPayload = new byte[payloadLen];
+                    await ReadExactAsync(eqPayload, payloadLen);
+
+                    int off = 0;
+                    int clothingLen = eqPayload[off++];
+                    string clothingGuid = clothingLen > 0 ? Encoding.UTF8.GetString(eqPayload, off, clothingLen) : "";
+                    off += clothingLen;
+                    int weaponLen = off < payloadLen ? eqPayload[off++] : 0;
+                    string weaponGuid = weaponLen > 0 ? Encoding.UTF8.GetString(eqPayload, off, weaponLen) : "";
+
+                    _server.BroadcastEquipment(this, clothingGuid, weaponGuid);
+                    continue;
+                }
+
                 if (type != 0x01 || (payloadLen != 16 && payloadLen != 17))
                 {
                     // Skip unknown/malformed packet
@@ -148,6 +167,23 @@ public class ClientSession
         payload[0] = ghostId;
         nameBytes.CopyTo(payload, 1);
         EnqueueRaw(BuildPacket(0x03, payload));
+    }
+
+    /// <summary>Thread-safe: enqueue an Equipment packet (0x07) to be sent to this client.</summary>
+    public void EnqueueEquipment(byte ghostId, string clothingGuid, string weaponGuid)
+    {
+        var clothingBytes = Encoding.UTF8.GetBytes(clothingGuid);
+        var weaponBytes   = Encoding.UTF8.GetBytes(weaponGuid);
+        var payload = new byte[1 + 1 + clothingBytes.Length + 1 + weaponBytes.Length];
+
+        int off = 0;
+        payload[off++] = ghostId;
+        payload[off++] = (byte)clothingBytes.Length;
+        clothingBytes.CopyTo(payload, off); off += clothingBytes.Length;
+        payload[off++] = (byte)weaponBytes.Length;
+        weaponBytes.CopyTo(payload, off);
+
+        EnqueueRaw(BuildPacket(0x07, payload));
     }
 
     private void EnqueueRaw(byte[] packet) =>
