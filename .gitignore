@@ -6,3 +6,5 @@ obj/
 out/
 Debug/
 Release/
+.vs/
+*.user
