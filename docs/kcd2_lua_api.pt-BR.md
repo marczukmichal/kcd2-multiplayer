@@ -1,9 +1,9 @@
-# KCD2 Lua API - Verified Methods
+# KCD2 Lua API - Métodos Verificados
 
 **Languages:** [English](kcd2_lua_api.md) | [Português](kcd2_lua_api.pt-BR.md) | [Español](kcd2_lua_api.es.md) | [中文](kcd2_lua_api.zh-CN.md) | [Русский](kcd2_lua_api.ru.md)
 
 Kingdom Come: Deliverance 2, v1.5.2, CryEngine, Lua 5.1.
-All methods verified in-game. Sources extracted from `Scripts.pak`.
+Todos os métodos verificados em jogo. Fontes extraídas do `Scripts.pak`.
 
 ---
 
@@ -14,13 +14,13 @@ System.LogAlways(msg)
 System.AddCCommand(name, luaCode, description)
 System.ExecuteCommand(cmd)
 System.SetCVar(name, value)
-System.GetCVarValue(name)                     -- returns string
-System.SpawnEntity(params)                    -- returns entity or nil
+System.GetCVarValue(name)                     -- retorna string
+System.SpawnEntity(params)                    -- retorna entity ou nil
 System.GetEntityByName(name)
 System.GetEntityByClass(class)
 ```
 
-**SpawnEntity params table:**
+**Tabela de parâmetros do SpawnEntity:**
 
 ```lua
 System.SpawnEntity({
@@ -36,18 +36,18 @@ System.SpawnEntity({
 ## Script
 
 ```lua
-Script.SetTimer(ms, callback)    -- runtime only, NOT from startup/init scripts
+Script.SetTimer(ms, callback)    -- apenas em runtime, NÃO em scripts de startup/init
 Script.ReloadScript(path)
 ```
 
 ---
 
-## Entity (basic)
+## Entity (básico)
 
 ```lua
-entity:GetWorldPos()             -- returns {x, y, z}
+entity:GetWorldPos()             -- retorna {x, y, z}
 entity:SetWorldPos({x, y, z})
-entity:GetAngles()               -- returns {x, y, z} Euler
+entity:GetAngles()               -- retorna {x, y, z} em ângulos de Euler
 entity:Hide(1/0)
 entity:Destroy()
 ```
@@ -58,8 +58,8 @@ entity:Destroy()
 
 ```lua
 local itemHandle = ItemManager.CreateItem(itemGuid, quantity, condition)
--- condition: 1.0 = perfect, 0.0 = broken
--- Use this instead of inventory:CreateItem() when you need to equip items
+-- condition: 1.0 = perfeito, 0.0 = quebrado
+-- Use isso em vez de inventory:CreateItem() quando precisar equipar itens
 ```
 
 ---
@@ -68,7 +68,7 @@ local itemHandle = ItemManager.CreateItem(itemGuid, quantity, condition)
 
 ```lua
 entity.inventory:AddItem(itemHandle)
-entity.inventory:FindItem(guid)              -- returns slot handle or nil
+entity.inventory:FindItem(guid)              -- retorna o handle do slot ou nil
 entity.inventory:RemoveAllItems()
 ```
 
@@ -77,45 +77,45 @@ entity.inventory:RemoveAllItems()
 ## entity.actor
 
 ```lua
--- Visual equip via clothing preset (WORKS on NPC)
+-- Equipar visualmente via preset de roupa (FUNCIONA em NPC)
 entity.actor:EquipClothingPreset(clothingPresetGuid)
 
--- Weapon preset
+-- Preset de arma
 entity.actor:EquipWeaponPreset(weaponPresetGuid)
 
--- Equip item from inventory slot (adds to inv slot but NOT visually on NPC model)
+-- Equipar item de um slot do inventário (adiciona ao slot mas NÃO aparece visualmente no NPC)
 entity.actor:EquipInventoryItem(slot)
 
--- Read current preset
+-- Ler o preset atual
 local guid = entity.actor:GetInitialClothingPreset()
 ```
 
-> **Warning:** `EquipInventoryItem` on an NPC puts the item in inventory but does NOT show it
-> visually on the model. Use `EquipClothingPreset` for visual equipping.
+> **Aviso:** `EquipInventoryItem` em um NPC coloca o item no inventário, mas NÃO o exibe
+> visualmente no modelo. Use `EquipClothingPreset` para equipar visualmente.
 
 ---
 
-## Equipping Armor on a Spawned NPC
+## Equipando Armadura em um NPC Spawnado
 
-Full working pattern (verified):
+Padrão completo e funcional (verificado):
 
 ```lua
 local pos = player:GetWorldPos()
 local npc = System.SpawnEntity({class="NPC", name="TestNPC", position=pos, scale={x=1,y=1,z=1}})
 if not npc then return end
 
--- Step 1: add items to inventory
+-- Passo 1: adicionar itens ao inventário
 local GAMBESON = "00b7ed62-a7bd-4269-acfa-8d852366579b"  -- GambesonShort01_m04_D2
 local CUIRASS  = "10ff6d35-8c14-4871-8656-bdc3476d8b12"  -- Cuirass07_m01_A4
 
 npc.inventory:AddItem(ItemManager.CreateItem(GAMBESON, 1, 1))
 npc.inventory:AddItem(ItemManager.CreateItem(CUIRASS,  1, 1))
 
--- Step 2: visually equip via ClothingPreset (GUID defined in XML)
+-- Passo 2: equipar visualmente via ClothingPreset (GUID definido no XML)
 npc.actor:EquipClothingPreset("dc000001-0000-0000-0000-000000000000")
 ```
 
-### Required XML (`Libs/Tables/item/clothing_preset__modname.xml` inside pak)
+### XML Necessário (`Libs/Tables/item/clothing_preset__modname.xml` dentro do pak)
 
 ```xml
 <?xml version="1.0" encoding="us-ascii"?>
@@ -136,19 +136,19 @@ npc.actor:EquipClothingPreset("dc000001-0000-0000-0000-000000000000")
 </database>
 ```
 
-**Rules:**
+**Regras:**
 
-- File must be named `clothing_preset__*.xml` (double underscore) — game merges all matching files
-- `clothing_preset_id` must be a valid hex UUID (digits 0-9 and letters a-f only!)
-- `EquipClothingPreset` takes the **GUID** (`clothing_preset_id`), not the name
-- Items listed under `<Items>` are visually worn on the character model
+- O arquivo deve se chamar `clothing_preset__*.xml` (duplo underscore) — o jogo mescla todos os arquivos que casarem com o padrão
+- `clothing_preset_id` deve ser um UUID hexadecimal válido (apenas dígitos 0-9 e letras a-f!)
+- `EquipClothingPreset` recebe o **GUID** (`clothing_preset_id`), não o nome
+- Itens listados dentro de `<Items>` são vestidos visualmente no modelo do personagem
 
 ---
 
-## NPC Animation
+## Animação de NPC
 
 ```lua
-entity:StartAnimation(slot, animName)         -- WORKS: "run", "walk", "idle", ...
+entity:StartAnimation(slot, animName)         -- FUNCIONA: "run", "walk", "idle", ...
 entity:StopAnimation(slot, layer)
 entity:IsAnimationRunning(slot, layer)
 entity:SetAnimationSpeed(slot, layer, speed)
@@ -156,24 +156,24 @@ entity:GetAnimationTime(slot, layer)
 entity:GetAnimationLength(slot, animName)
 entity:ForceCharacterUpdate(slot, bool)
 
--- NOT available on NPC:
+-- NÃO disponível em NPC:
 -- SetAnimationInput, SetMotionParameter, PlayAnimation
 ```
 
 ---
 
-## NPC AI (entity.AI)
+## IA do NPC (entity.AI)
 
 ```lua
 entity.AI:SetRefPointPosition({x, y, z})
 entity.AI:GoTo({x, y, z})
 entity.AI:SetForcedNavigation({x, y, z})
--- 50+ additional AI functions available
+-- mais de 50 funções adicionais de IA disponíveis
 ```
 
 ---
 
-## Player-specific
+## Específico do Player
 
 ```lua
 player:GetWorldPos()                          -- {x, y, z}
@@ -189,43 +189,43 @@ player.soul:GetSkillLevel("thievery")
 
 ```lua
 UIAction.RegisterElementListener(state, element, -1, "OnShow"/"OnHide", "callbackName")
--- Known elements: "Menu", "ApseModalDialog"
+-- Elementos conhecidos: "Menu", "ApseModalDialog"
 ```
 
 ---
 
-## Debug REST API (localhost:1403)
+## API REST de Debug (localhost:1403)
 
-| Endpoint                                            | Description                  |
-| --------------------------------------------------- | ---------------------------- |
-| `GET /api/rpg/SoulList/PlayerSoul?depth=1`          | Player position, name, state |
-| `GET /api/rpg/Calendar?depth=1`                     | GameTime (0 = main menu)     |
-| `GET /api/System/Console/ExecuteString?command=...` | Execute console command      |
-| `GET /api/System/Console/GetCvarValue?name=...`     | Read CVar value              |
-| `GET /api/<path>?info`                              | Discover properties/methods  |
-| `GET /api/<path>?depth=1`                           | Read values                  |
+| Endpoint                                            | Descrição                    |
+| --------------------------------------------------- | ----------------------------- |
+| `GET /api/rpg/SoulList/PlayerSoul?depth=1`          | Posição, nome e estado do jogador |
+| `GET /api/rpg/Calendar?depth=1`                     | GameTime (0 = menu principal) |
+| `GET /api/System/Console/ExecuteString?command=...` | Executar comando de console   |
+| `GET /api/System/Console/GetCvarValue?name=...`     | Ler valor de uma CVar         |
+| `GET /api/<path>?info`                              | Descobrir propriedades/métodos |
+| `GET /api/<path>?depth=1`                           | Ler valores                   |
 
-Lua execution: prefix command with `#`, e.g. `#System.SetCVar("x","y")`
+Execução de Lua: prefixe o comando com `#`, ex.: `#System.SetCVar("x","y")`
 
-Eval trick: write to CVar via Lua, read back via GetCvarValue.
+Truque de avaliação: escreva em uma CVar via Lua, leia de volta via GetCvarValue.
 
-> **WSL2 note:** `curl` from WSL2 cannot reach Windows localhost:1403.
-> Use `powershell.exe` or `cmd.exe /c curl.exe`.
+> **Nota WSL2:** o `curl` do WSL2 não consegue alcançar `localhost:1403` do Windows.
+> Use `powershell.exe` ou `cmd.exe /c curl.exe`.
 
 ---
 
-## Known Item GUIDs
+## GUIDs de Itens Conhecidos
 
 | Item                   | GUID                                   |
 | ---------------------- | -------------------------------------- |
 | GambesonShort01_m04_D2 | `00b7ed62-a7bd-4269-acfa-8d852366579b` |
 | Cuirass07_m01_A4       | `10ff6d35-8c14-4871-8656-bdc3476d8b12` |
 
-Item data source: `Data/Tables.pak → Libs/Tables/item/item.xml`
+Fonte dos dados de itens: `Data/Tables.pak → Libs/Tables/item/item.xml`
 
 ---
 
-## Pak Build Script (PowerShell)
+## Script de Build do Pak (PowerShell)
 
 ```powershell
 Add-Type -AssemblyName System.IO.Compression
@@ -250,16 +250,16 @@ foreach ($rel in $files) {
 $zip.Dispose()
 ```
 
-> Always close the game before rebuilding the pak (file is locked while running).
+> Sempre feche o jogo antes de recompilar o pak (o arquivo fica travado enquanto o jogo roda).
 
 ---
 
-## Source References (Scripts.pak)
+## Referências de Fontes (Scripts.pak)
 
-| File                                           | Contents                                                             |
-| ---------------------------------------------- | -------------------------------------------------------------------- |
+| Arquivo                                        | Conteúdo                                                              |
+| ----------------------------------------------- | ----------------------------------------------------------------------- |
 | `Scripts/Debug/CombatDebug.lua`                | SpawnEnemy, EquipClothingPreset, EquipWeaponPreset, tblArmor presets |
-| `Scripts/Entities/actor/player.lua`            | ItemManager.CreateItem, AddItem, EquipClothingPreset (cheat gear)    |
-| `Scripts/Entities/AI/InventoryDummyPlayer.lua` | NPC entity structure, BasicActor/BasicAI                             |
-| `Scripts/Entities/WH/Stash/AnimStash.lua`      | inventory patterns, stash interaction                                |
-| `Scripts/FlowNodes/InventoryWeapon.lua`        | weapon inventory flow nodes                                          |
+| `Scripts/Entities/actor/player.lua`            | ItemManager.CreateItem, AddItem, EquipClothingPreset (cheats de equipamento) |
+| `Scripts/Entities/AI/InventoryDummyPlayer.lua` | Estrutura de entity de NPC, BasicActor/BasicAI                       |
+| `Scripts/Entities/WH/Stash/AnimStash.lua`      | Padrões de inventário, interação com baú/stash                       |
+| `Scripts/FlowNodes/InventoryWeapon.lua`        | Flow nodes de inventário de armas                                    |

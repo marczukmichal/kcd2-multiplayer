@@ -1,5 +1,7 @@
 # KCD2 Multiplayer
 
+**Languages:** [English](README.md) | [Português](README.pt-BR.md) | [Español](README.es.md) | [中文](README.zh-CN.md) | [Русский](README.ru.md)
+
 Experimental multiplayer mod for Kingdom Come: Deliverance II. Each player sees the other as a ghost NPC — position and rotation are synced in real time.
 
 ## Architecture
