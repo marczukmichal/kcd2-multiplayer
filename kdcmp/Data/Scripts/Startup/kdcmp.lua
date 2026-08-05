@@ -248,6 +248,46 @@ function KCD2MP_SetGhostName(id, name)
     -- No ghost yet: name stored in ghostNames, applied at spawn (1.5s delay there)
 end
 
+-- ===== Equipment Sync =====
+-- Read-side: local player's currently worn clothing preset GUID.
+-- entity.actor:GetInitialClothingPreset() is the only verified read-side API for this
+-- (docs/kcd2_lua_api.md). There is NO verified API to read the player's currently
+-- equipped WEAPON preset — EquipWeaponPreset is write-only in the verified API surface.
+-- Called every ~80ms by GameBridge's RotStateLoopAsync (piggybacked on the existing
+-- sv_servername cvar eval trick, so no extra HTTP round trip is added).
+function KCD2MP_GetMyClothingPreset()
+    local guid = ""
+    if player and player.actor then
+        pcall(function() guid = player.actor:GetInitialClothingPreset() or "" end)
+    end
+    return guid
+end
+
+-- Write-side: apply clothing/weapon preset to a ghost NPC. Called by C# on 0x07 packets
+-- received from the server. weaponGuid is currently always "" from real clients (see
+-- limitation above) but the parameter is kept so a future verified source (or a
+-- manually-configured weapon) can populate it without another protocol change.
+function KCD2MP_SetGhostEquipment(id, clothingGuid, weaponGuid)
+    local ghost = KCD2MP.ghosts[id]
+    if not ghost or not ghost.entity then
+        mp_log("SetGhostEquipment id=" .. id .. " no entity")
+        return
+    end
+    local e = ghost.entity
+
+    if clothingGuid and clothingGuid ~= "" then
+        local ok, err = pcall(function() e.actor:EquipClothingPreset(clothingGuid) end)
+        mp_log(string.format("SetGhostEquipment id=%s clothing=%s ok=%s%s",
+            id, clothingGuid, tostring(ok), ok and "" or (" err=" .. tostring(err))))
+    end
+
+    if weaponGuid and weaponGuid ~= "" then
+        local ok, err = pcall(function() e.actor:EquipWeaponPreset(weaponGuid) end)
+        mp_log(string.format("SetGhostEquipment id=%s weapon=%s ok=%s%s",
+            id, weaponGuid, tostring(ok), ok and "" or (" err=" .. tostring(err))))
+    end
+end
+
 -- ===== Horse Ghost Spawn / Remove =====
 
 function KCD2MP_SpawnHorse(id, x, y, z, rotZ)

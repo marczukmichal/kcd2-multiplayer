@@ -164,6 +164,9 @@ cd dotnet
 dotnet run --project KcdMp.Server
 dotnet run --project KcdMp.Client -- localhost 7778 PC1 http://localhost:1404
 
+# Run protocol tests (packet serialization/deserialization, no game required)
+dotnet run --project KcdMp.Tests
+
 # Build standalone .exe (no .NET required to run)
 dotnet publish KcdMp.Server -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish\server
 dotnet publish KcdMp.Client -c Release -r win-x64 --self-contained -p:PublishSingleFile=true -o publish\client
@@ -214,7 +217,12 @@ netsh advfirewall firewall delete rule name="KCD2MP Relay 7778"
 
 ## Known Limitations
 
-- Position and rotation sync only — no inventory, quests, or save sync
+- Position, rotation, and clothing preset sync — no inventory, quests, or save sync
+- Weapon visuals are **not** synced yet: there is no verified game API to read a player's
+  currently equipped weapon preset (only to *equip* one), so the `0x07` Equipment packet's
+  weapon field is always sent empty for now
+- Equipment changes are detected by polling (every ~80ms) — a clothing swap mid-combat may
+  take a moment to appear on the other player's ghost
 - Both players must have a save loaded for sync to work
 - Ghost NPC appearance depends on NPC spawning in the area
 

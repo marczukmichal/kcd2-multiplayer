@@ -13,6 +13,7 @@ namespace KcdMp.Client;
 ///   1. Wait for the game to have a save loaded (GameTime > 0).
 ///   2. Connect to the relay server via TCP and send Handshake.
 ///   3. Push local player position every tick (only when changed).
+///   3b. Push local player equipment (clothing preset) whenever it changes.
 ///   4. Receive Ghost packets from the relay server and update the local
 ///      game's ghost NPCs via the game debug REST API.
 ///
@@ -38,6 +39,11 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
     // Cached rotation + riding state updated by background loop (volatile = visible across threads)
     private volatile float _cachedRotZ = 0f;
     private volatile bool  _cachedIsRiding = false;
+
+    // Cached clothing preset GUID, updated by the same background loop (piggybacked on the
+    // rotation/riding cvar eval so no extra HTTP round trip is added). Empty until first read.
+    private volatile string _cachedClothingGuid = "";
+    private string _lastSentClothingGuid = "";
 
     // Ping: maps sent timestamp (ticks) → Stopwatch timestamp at send time
     private readonly System.Collections.Concurrent.ConcurrentDictionary<long, long> _pingsSent = new();
@@ -171,6 +177,17 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                     }
                 }
 
+                // Equipment: only sent when the clothing preset actually changes (not every tick).
+                // Weapon GUID is always sent empty — see KCD2MP_GetMyClothingPreset comment in
+                // kdcmp.lua for why there is no verified read-side API for the equipped weapon.
+                string clothingGuid = _cachedClothingGuid;
+                if (clothingGuid != _lastSentClothingGuid)
+                {
+                    _lastSentClothingGuid = clothingGuid;
+                    await SendEquipmentAsync(stream, clothingGuid, "");
+                    Console.WriteLine($"[equipment] clothing={clothingGuid}");
+                }
+
                 // Print average read time every 100 ticks
                 if (tickCount % 100 == 0)
                     Console.WriteLine($"[stat] avg read={totalReadMs / tickCount}ms over {tickCount} ticks");
@@ -224,11 +241,15 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                 // Riding state is detected in the Lua interp tick (where Terrain API is
                 // available) and cached in KCD2MP.isRiding. We just read that here.
                 // Note: Terrain.GetElevation is NOT available in ExecuteString context.
+                // Piggybacks the clothing preset GUID onto the same eval + cvar round trip
+                // (KCD2MP_GetMyClothingPreset, defined in kdcmp.lua) instead of polling it
+                // via a separate HTTP call every tick.
                 await ExecLuaAsync(
                     @"System.SetCVar(""sv_servername"",(function()" +
                     @"local r=player:GetWorldAngles().z;" +
                     @"local ride=KCD2MP and KCD2MP.isRiding and 'r' or 's';" +
-                    @"return string.format('%.4f,%s',r,ride)end)())");
+                    @"local cloth=KCD2MP_GetMyClothingPreset and KCD2MP_GetMyClothingPreset() or '';" +
+                    @"return string.format('%.4f,%s,%s',r,ride,cloth)end)())");
 
                 var xml = await _http.GetStringAsync($"{gameApiBase}/api/System/Console/GetCvarValue?name=sv_servername");
                 var m = CvarValueRegex().Match(xml);
@@ -239,6 +260,8 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                         _cachedRotZ = rot;
                     if (parts.Length >= 2)
                         _cachedIsRiding = parts[1].Trim() == "r";
+                    if (parts.Length >= 3)
+                        _cachedClothingGuid = parts[2].Trim();
                 }
             }
             catch { /* game might be loading, just use cached values */ }
@@ -300,6 +323,18 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
                     byte ghostId = payload[0];
                     Console.WriteLine($"[disconnect] ghost {ghostId} removed");
                     try { await ExecLuaAsync($"KCD2MP_RemoveGhost(\"{ghostId}\")"); } catch { }
+                }
+                else if (type == 0x07 && payloadLen >= 3)
+                {
+                    // Equipment packet: [ghostId:1][clothingLen:1][clothing:UTF-8][weaponLen:1][weapon:UTF-8]
+                    byte ghostId = payload[0];
+                    int off = 1;
+                    int clothingLen = payload[off++];
+                    string clothingGuid = clothingLen > 0 ? Encoding.UTF8.GetString(payload, off, clothingLen) : "";
+                    off += clothingLen;
+                    int weaponLen = off < payloadLen ? payload[off++] : 0;
+                    string weaponGuid = weaponLen > 0 ? Encoding.UTF8.GetString(payload, off, weaponLen) : "";
+                    await SetGhostEquipmentAsync(ghostId.ToString(), clothingGuid, weaponGuid);
                 }
             }
         }
@@ -365,6 +400,19 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
         catch { }
     }
 
+    private async Task SetGhostEquipmentAsync(string ghostId, string clothingGuid, string weaponGuid)
+    {
+        // Escape any quotes to avoid Lua injection (GUIDs never contain quotes, but be defensive)
+        var safeClothing = clothingGuid.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        var safeWeapon    = weaponGuid.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        try
+        {
+            await ExecLuaAsync($@"KCD2MP_SetGhostEquipment(""{ghostId}"",""{safeClothing}"",""{safeWeapon}"")");
+            Console.WriteLine($"[equipment] ghost {ghostId} clothing={clothingGuid} weapon={weaponGuid}");
+        }
+        catch { }
+    }
+
     private async Task ExecLuaAsync(string lua)
     {
         var cmd = Uri.EscapeDataString($"#{lua}");
@@ -386,6 +434,30 @@ public partial class GameBridge(string serverHost, int serverPort, string name, 
         WriteFloat(packet, 11, z);
         WriteFloat(packet, 15, rotZ);
         packet[19] = isRiding ? (byte)0x01 : (byte)0x00;
+        await stream.WriteAsync(packet);
+    }
+
+    /// <summary>
+    /// Sends an Equipment packet (0x07): [clothingLen:1][clothing:UTF-8][weaponLen:1][weapon:UTF-8].
+    /// GUIDs are always well under 255 bytes (36-char hex UUIDs), so the 1-byte length prefix is safe.
+    /// </summary>
+    private static async Task SendEquipmentAsync(NetworkStream stream, string clothingGuid, string weaponGuid)
+    {
+        var clothingBytes = Encoding.UTF8.GetBytes(clothingGuid ?? "");
+        var weaponBytes   = Encoding.UTF8.GetBytes(weaponGuid ?? "");
+        if (clothingBytes.Length > 255 || weaponBytes.Length > 255) return; // defensive, should never happen
+
+        int payloadLen = 1 + clothingBytes.Length + 1 + weaponBytes.Length;
+        var packet = new byte[3 + payloadLen];
+        packet[0] = 0x07;
+        BinaryPrimitives.WriteUInt16LittleEndian(packet.AsSpan(1), (ushort)payloadLen);
+
+        int offset = 3;
+        packet[offset++] = (byte)clothingBytes.Length;
+        clothingBytes.CopyTo(packet, offset); offset += clothingBytes.Length;
+        packet[offset++] = (byte)weaponBytes.Length;
+        weaponBytes.CopyTo(packet, offset);
+
         await stream.WriteAsync(packet);
     }
 
